@@ -1,0 +1,14 @@
+node_modules/
+.env
+dist/
+.svelte-kit/
+build/
+*.log
+.DS_Store
+Thumbs.db
+
+# Piper TTS — binary, models and generated audio cache (run setup-piper.js once)
+apps/api/tts/bin/
+apps/api/tts/models/
+apps/api/tts/tmp/
+apps/api/cache/

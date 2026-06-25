@@ -1,0 +1,13 @@
+{
+    "Servers": {
+        "1": {
+            "Name": "ClinicQueue DB",
+            "Group": "Docker",
+            "Host": "postgres",
+            "Port": 5432,
+            "MaintenanceDB": "clinicqueue_db",
+            "Username": "postgres",
+            "SSLMode": "prefer"
+        }
+    }
+}

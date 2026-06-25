@@ -1,0 +1,44 @@
+{
+  "app_name": "Flow Connected",
+  "login": {
+    "title": "Iniciar Sesión — Flow Connected",
+    "subtitle": "Sistema de Gestión de Filas",
+    "error_empty": "Por favor, complete todos los campos.",
+    "error_failed": "Error al iniciar sesión",
+    "success": "¡Bienvenido, {{name}}!",
+    "label_username": "Usuario o Correo",
+    "placeholder_username": "admin",
+    "label_password": "Contraseña",
+    "button_signin": "Iniciar Sesión",
+    "button_signing_in": "Iniciando…"
+  },
+  "kiosk": {
+    "title": "Flow Connected — Kiosko",
+    "subtitle": "Sistema de Turnos · Autoservicio",
+    "error_load_config": "No se pudo cargar la configuración del dispositivo.",
+    "error_print": "Se emitió el turno, pero ocurrió un error al imprimir el ticket.",
+    "error_issue": "Error al emitir turno",
+    "loading_areas": "Cargando áreas de servicio…",
+    "your_turn": "Su turno es",
+    "wait_to_be_called": "Espere a ser llamado por favor.",
+    "printing_ticket": "Imprimiendo ticket…",
+    "returning_in": "Regresando en {{time}}s…",
+    "return_now": "Volver Ahora",
+    "select_area": "Seleccione el área de servicio",
+    "touch_option": "Toque una de las opciones a continuación para generar su ticket.",
+    "area_prefix": "Área {{prefix}}",
+    "close_terminal": "← Cerrar Terminal",
+    "building_terminal": "Terminal de Edificio"
+  },
+  "board": {
+    "init_screen": "Iniciar Pantalla",
+    "enable_sound_hint": "Haga clic para habilitar el sonido de las notificaciones",
+    "speed": "Velocidad:",
+    "connecting": "Conectando con el sistema…",
+    "no_calls": "No hay turnos llamados",
+    "please_wait": "Por favor, espere su turno para ser atendido.",
+    "head_to": "Pase a:",
+    "recent_calls": "Últimos Llamados",
+    "none_recent": "Ninguno reciente"
+  }
+}

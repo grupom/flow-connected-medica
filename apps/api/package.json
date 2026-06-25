@@ -1,0 +1,30 @@
+{
+    "name": "@clinicqueue/api",
+    "version": "1.0.0",
+    "description": "ClinicQueue Fastify API",
+    "main": "src/server.js",
+    "type": "commonjs",
+    "scripts": {
+        "dev": "nodemon src/server.js",
+        "start": "node src/server.js",
+        "seed": "node db/seeds/demo_seed.js"
+    },
+    "dependencies": {
+        "@fastify/cookie": "^11.0.2",
+        "@fastify/cors": "^11.2.0",
+        "@fastify/jwt": "^10.0.0",
+        "@fastify/rate-limit": "^10.2.0",
+        "@fastify/static": "^8.1.1",
+        "bcrypt": "^6.0.0",
+        "dotenv": "^16.4.5",
+        "fastify": "^5.8.1",
+        "fastify-plugin": "^5.1.0",
+        "pg": "^8.11.3"
+    },
+    "devDependencies": {
+        "nodemon": "^3.1.4"
+    },
+    "engines": {
+        "node": ">=20.0.0"
+    }
+}

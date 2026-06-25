@@ -1,0 +1,44 @@
+{
+  "app_name": "Flow Connected",
+  "login": {
+    "title": "Konekte — Flow Connected",
+    "subtitle": "Sistèm Jesyon Liy",
+    "error_empty": "Tanpri ranpli tout chan yo.",
+    "error_failed": "Koneksyon an echwe",
+    "success": "Byenveni, {{name}}!",
+    "label_username": "Itilizatè oswa Imèl",
+    "placeholder_username": "admin",
+    "label_password": "Modpas",
+    "button_signin": "Konekte",
+    "button_signing_in": "Ap konekte…"
+  },
+  "kiosk": {
+    "title": "Flow Connected — Tèminal",
+    "subtitle": "Sistèm Liy · Sèvis pou kont ou",
+    "error_load_config": "Pa ka chaje konfigirasyon aparèy la.",
+    "error_print": "Tikè a emèt, men te gen yon erè lè pou enprime li.",
+    "error_issue": "Erè lè ap bay tikè a",
+    "loading_areas": "Ap chaje zòn sèvis yo…",
+    "your_turn": "Tikè ou se",
+    "wait_to_be_called": "Tanpri tann yo rele ou.",
+    "printing_ticket": "Ap enprime tikè a…",
+    "returning_in": "Ap tounen nan {{time}}s…",
+    "return_now": "Tounen Kounye a",
+    "select_area": "Chwazi zòn sèvis la",
+    "touch_option": "Manyen youn nan opsyon ki anba yo pou jwenn tikè w.",
+    "area_prefix": "Zòn {{prefix}}",
+    "close_terminal": "← Fèmen Tèminal",
+    "building_terminal": "Tèminal Bilding nan"
+  },
+  "board": {
+    "init_screen": "Kòmanse Ekran",
+    "enable_sound_hint": "Klike la pou pèmèt son notifikasyon an",
+    "speed": "Vitès:",
+    "connecting": "Konekte ak sistèm nan…",
+    "no_calls": "Pa gen tikè yo rele",
+    "please_wait": "Tanpri, tann nan liy pou yo sèvi ou.",
+    "head_to": "Ale nan:",
+    "recent_calls": "Dènye Apèl Yo",
+    "none_recent": "Pa gen nan dènyèman"
+  }
+}

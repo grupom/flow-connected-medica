@@ -1,0 +1,79 @@
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: clinicqueue_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-clinicqueue_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Init scripts run only on first start (when the data volume is empty).
+      # 01: base schema | 02: refresh_tokens | 03: post-DDL migrations (columns, functions, etc.)
+      - ./clinicqueue-DDL.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./apps/api/db/migrations/001_refresh_tokens.sql:/docker-entrypoint-initdb.d/02-refresh-tokens.sql:ro
+      - ./docker/init/03-migrations.sql:/docker-entrypoint-initdb.d/03-migrations.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-clinicqueue_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── API + Web UI ─────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: clinicqueue_api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-3001}:3001"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRY: ${JWT_ACCESS_EXPIRY:-15m}
+      JWT_REFRESH_EXPIRY: ${JWT_REFRESH_EXPIRY:-7d}
+      PORT: 3001
+      HOST: 0.0.0.0
+      NODE_ENV: production
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      CORS_SUBNETS: ${CORS_SUBNETS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      # Persist TTS audio cache across container restarts
+      - tts_cache:/app/apps/api/cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── pgAdmin ──────────────────────────────────────────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: clinicqueue_pgadmin
+    restart: unless-stopped
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      # Pre-registers the postgres connection so it appears on first login
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+  tts_cache:
