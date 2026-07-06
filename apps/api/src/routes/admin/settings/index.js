@@ -46,13 +46,19 @@ module.exports = async function settingsRoutes(fastify) {
 
     // PATCH /api/admin/settings
     // Upserts one or more settings. Body: { multi_language: true, ... }
+    // ADMIN-only: this endpoint can change security-relevant settings
+    // (e.g. session_duration_hours_staff), not just cosmetic ones.
     fastify.patch('/', {
-        ...auth,
+        ...adminOnly,
         schema: {
             body: {
                 type: 'object',
                 minProperties: 1,
                 additionalProperties: { type: ['boolean', 'string', 'number', 'object', 'array', 'null'] },
+                properties: {
+                    session_duration_hours_staff: { type: 'integer', minimum: 8, maximum: 16 },
+                    session_kiosk_no_expiry: { type: 'boolean' },
+                },
             },
         },
     }, async (request, reply) => {

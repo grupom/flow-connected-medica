@@ -65,7 +65,7 @@
           email: form.email,
         });
         if (form.password) {
-          await api.patch(`/api/admin/users/${editUser.user_id}/password`, { new_password: form.password });
+          await api.patch(`/api/admin/users/${editUser.user_id}/password`, { password: form.password });
         }
         toasts.success('User updated');
       } else {
@@ -207,7 +207,7 @@
         </div>
         <div class="form-group">
           <label class="form-label">Password</label>
-          <input class="input" type="password" bind:value={form.password} required placeholder="Min 8 chars" />
+          <input class="input" type="password" bind:value={form.password} required minlength="6" placeholder="Min 6 chars" />
         </div>
       </div>
       <div class="form-group">
@@ -221,7 +221,7 @@
     {:else}
       <div class="form-group">
         <label class="form-label">New Password <span class="muted text-sm">(leave blank to keep)</span></label>
-        <input class="input" type="password" bind:value={form.password} placeholder="New password…" />
+        <input class="input" type="password" bind:value={form.password} minlength="6" placeholder="New password…" />
       </div>
     {/if}
     <div class="modal-footer">

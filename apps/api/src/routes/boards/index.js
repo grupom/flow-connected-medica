@@ -1,6 +1,7 @@
 'use strict';
 
 const { query } = require('../../db/pool');
+const { attachMediaUrls } = require('../admin/boards/mediaService');
 
 module.exports = async function boardsPublicRoutes(fastify) {
     // GET /api/boards/:boardCode/snapshot  — public (no auth needed for display screens)
@@ -24,6 +25,10 @@ module.exports = async function boardsPublicRoutes(fastify) {
 
         // station_name is the primary display label (returned directly by get_board_snapshot)
         // module_name is no longer used — modules are optional organizational metadata
+
+        // Build ready-to-use ad media URLs from the stored filenames (keeps the storage
+        // layout out of the SQL function and out of the frontend's knowledge).
+        attachMediaUrls(snapshot.board);
 
         return reply.send(snapshot);
     });

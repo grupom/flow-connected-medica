@@ -3,7 +3,7 @@
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { auth } from "$lib/auth.js";
-    import { api } from "$lib/api.js";
+    import { api, refreshSession } from "$lib/api.js";
     import { systemSettings } from "$lib/stores.js";
     import { locale } from "$lib/i18n";
     import Sidebar from "$lib/components/Sidebar.svelte";
@@ -45,19 +45,15 @@
     }
 
     onMount(async () => {
-        // Try to rehydrate session from stored refresh token
+        // Try to rehydrate session from stored refresh token. Goes through
+        // the shared refreshSession() (same mutex apiFetch uses) instead of
+        // calling the endpoint directly, so a page reload can't race a
+        // concurrent refresh from another in-flight request in this tab.
         if (!$auth.accessToken) {
             const rt = auth.getRefreshToken();
             if (rt) {
                 try {
-                    const res = await api.public.post("/api/auth/refresh", {
-                        refreshToken: rt,
-                    });
-                    auth.setAuth({
-                        user: res.user,
-                        accessToken: res.accessToken,
-                        refreshToken: res.refreshToken,
-                    });
+                    await refreshSession();
                 } catch {
                     auth.logout();
                     goto("/login");

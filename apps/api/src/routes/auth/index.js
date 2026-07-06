@@ -28,16 +28,18 @@ module.exports = async function authRoutes(fastify) {
             role_codes: user.role_codes || [],
         };
 
+        // Duration depends on admin-configured settings and whether this
+        // account is bound to a kiosk (see computeSessionDurations).
+        const durations = await svc.computeSessionDurations(user.user_id);
+
         // Sign access token
-        const accessToken = await reply.accessSign(payload);
+        const accessToken = await reply.accessSign(payload, { expiresIn: durations.accessExpiresIn });
 
         // Generate opaque refresh token string + sign JWT refresh
         const refreshRaw = svc.generateRefreshTokenString();
-        const refreshToken = await reply.refreshSign({ ...payload, jti: refreshRaw });
+        const refreshToken = await reply.refreshSign({ ...payload, jti: refreshRaw }, { expiresIn: durations.refreshExpiresIn });
 
-        // Compute expiry (7d from now)
-        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-        await svc.storeRefreshToken(user.user_id, refreshRaw, expiresAt);
+        await svc.storeRefreshToken(user.user_id, refreshRaw, durations.refreshExpiresAt);
 
         // Update last login
         await svc.touchLastLogin(user.user_id);
@@ -60,22 +62,27 @@ module.exports = async function authRoutes(fastify) {
     fastify.post('/refresh', refreshSchema, async (request, reply) => {
         const { refreshToken } = request.body;
 
-        // Verify JWT signature first
+        // Verify JWT signature first. NOTE: request.refreshVerify() (the
+        // request-decorator form) only ever looks for a token in the
+        // Authorization header or a cookie — it has no "token" option, so
+        // passing one here was silently ignored and this ALWAYS threw.
+        // fastify.jwt.refresh.verify(token) is the correct way to verify an
+        // explicit token string pulled from the request body.
         let decoded;
         try {
-            decoded = await request.refreshVerify({ onlyCookie: false, complete: false, token: refreshToken });
+            decoded = await fastify.jwt.refresh.verify(refreshToken);
         } catch {
             return reply.code(401).send({ error: 'Unauthorized', message: 'Invalid refresh token' });
         }
 
-        // Check DB (not revoked, not expired)
-        const stored = await svc.getStoredRefreshToken(decoded.jti);
+        // Atomically verify-and-revoke in one statement — if this returns
+        // null, either the token never existed, was already rotated by a
+        // concurrent request, or genuinely expired. Any of those is a clean
+        // 401, not a race artifact.
+        const stored = await svc.rotateRefreshToken(decoded.jti);
         if (!stored) {
             return reply.code(401).send({ error: 'Unauthorized', message: 'Refresh token revoked or expired' });
         }
-
-        // Rotate: revoke old, issue new
-        await svc.revokeRefreshToken(decoded.jti);
 
         const payload = {
             user_id: stored.user_id,
@@ -83,11 +90,12 @@ module.exports = async function authRoutes(fastify) {
             role_codes: stored.role_codes || [],
         };
 
-        const accessToken = await reply.accessSign(payload);
+        const durations = await svc.computeSessionDurations(stored.user_id);
+
+        const accessToken = await reply.accessSign(payload, { expiresIn: durations.accessExpiresIn });
         const refreshRaw = svc.generateRefreshTokenString();
-        const newRefreshToken = await reply.refreshSign({ ...payload, jti: refreshRaw });
-        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-        await svc.storeRefreshToken(stored.user_id, refreshRaw, expiresAt);
+        const newRefreshToken = await reply.refreshSign({ ...payload, jti: refreshRaw }, { expiresIn: durations.refreshExpiresIn });
+        await svc.storeRefreshToken(stored.user_id, refreshRaw, durations.refreshExpiresAt);
 
         return reply.code(200).send({
             accessToken,
@@ -107,7 +115,7 @@ module.exports = async function authRoutes(fastify) {
     fastify.post('/logout', logoutSchema, async (request, reply) => {
         const { refreshToken } = request.body;
         try {
-            const decoded = await request.refreshVerify({ onlyCookie: false, complete: false, token: refreshToken });
+            const decoded = await fastify.jwt.refresh.verify(refreshToken);
             if (decoded?.jti) {
                 await svc.revokeRefreshToken(decoded.jti);
             }

@@ -18,6 +18,9 @@ async function buildApp() {
     await fastify.register(require('./plugins/cors'));
     await fastify.register(require('./plugins/rateLimit'));
     await fastify.register(require('./plugins/jwt'));
+    await fastify.register(require('@fastify/multipart'), {
+        limits: { fileSize: 100 * 1024 * 1024, files: 20 }, // per-route validation below is stricter per media type
+    });
 
     // ── Health check ─────────────────────────────────────────────────────────
     fastify.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }));
@@ -35,6 +38,7 @@ async function buildApp() {
     await fastify.register(require('./routes/admin/queueSettings/index'), { prefix: '/api/admin/queue-settings' });
     await fastify.register(require('./routes/admin/boards/index'), { prefix: '/api/admin/boards' });
     await fastify.register(require('./routes/admin/boards/stations'), { prefix: '/api/admin/boards' });
+    await fastify.register(require('./routes/admin/boards/media'), { prefix: '/api/admin/boards' });
     await fastify.register(require('./routes/admin/metrics/index'), { prefix: '/api/admin/metrics' });
     await fastify.register(require('./routes/admin/reports/index'), { prefix: '/api/admin/reports' });
     await fastify.register(require('./routes/admin/kiosks/index'), { prefix: '/api/admin/kiosks' });
@@ -61,6 +65,19 @@ async function buildApp() {
 
     // ── TTS (Piper offline) /api/tts ──────────────────────────────────────────
     await fastify.register(require('./routes/tts/index'), { prefix: '/api/tts' });
+
+    // ── Board ad media (público, sin auth — la TV no inicia sesión) ────────────
+    // Registrado con @fastify/static para soportar Range requests (seek de <video>).
+    const MEDIA_ROOT = path.join(__dirname, '..', 'media', 'boards');
+    fs.mkdirSync(MEDIA_ROOT, { recursive: true });
+    await fastify.register(require('@fastify/static'), {
+        root: MEDIA_ROOT,
+        prefix: '/media/boards/',
+        decorateReply: false, // evita chocar con la decoración de reply.sendFile del SPA
+        cacheControl: true,
+        maxAge: '1d',
+        immutable: true,
+    });
 
     // ── Web UI (SPA estático) ─────────────────────────────────────────────────
     // Sirve los archivos compilados de SvelteKit desde apps/web/build/.

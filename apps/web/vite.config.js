@@ -6,7 +6,7 @@ export default defineConfig({
     server: {
         port: 5173,
         host: '0.0.0.0',
-        // En desarrollo el API corre en :3001; el proxy reenvía /api y /health
+        // En desarrollo el API corre en :3001; el proxy reenvía /api, /health y /media
         // para que la web use rutas relativas igual que en producción.
         proxy: {
             '/api': {
@@ -14,6 +14,10 @@ export default defineConfig({
                 changeOrigin: true,
             },
             '/health': {
+                target: 'http://localhost:3001',
+                changeOrigin: true,
+            },
+            '/media': {
                 target: 'http://localhost:3001',
                 changeOrigin: true,
             },

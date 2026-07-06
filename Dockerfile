@@ -64,7 +64,7 @@ RUN mkdir -p apps/api/tts/bin apps/api/tts/models && \
     echo "WARNING: Piper TTS download failed. Browser SpeechSynthesis will be used as fallback."
 
 # Create runtime directories
-RUN mkdir -p apps/api/cache/tts apps/api/tts/tmp
+RUN mkdir -p apps/api/cache/tts apps/api/tts/tmp apps/api/media/boards
 
 EXPOSE 3001
 

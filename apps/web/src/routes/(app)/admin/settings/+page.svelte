@@ -8,10 +8,17 @@
   let ticketCompanyName = '';
   let savingTicket = false;
 
+  // ── Session duration settings ─────────────────────────────
+  let sessionDurationHours = 12;
+  let kioskNoExpiry = true;
+  let savingSession = false;
+
   onMount(async () => {
     try {
       const res = await api.get('/api/admin/settings');
       ticketCompanyName = res.data?.ticket_company_name ?? '';
+      sessionDurationHours = res.data?.session_duration_hours_staff ?? 12;
+      kioskNoExpiry = res.data?.session_kiosk_no_expiry ?? true;
     } catch {
       // non-critical
     }
@@ -28,6 +35,23 @@
       toasts.error(e.message || 'Error al guardar');
     } finally {
       savingTicket = false;
+    }
+  }
+
+  async function saveSessionSettings() {
+    const hours = Math.min(16, Math.max(8, Math.round(sessionDurationHours)));
+    sessionDurationHours = hours;
+    savingSession = true;
+    try {
+      await api.patch('/api/admin/settings', {
+        session_duration_hours_staff: hours,
+        session_kiosk_no_expiry: kioskNoExpiry,
+      });
+      toasts.success('Configuración de sesión guardada');
+    } catch (e) {
+      toasts.error(e.message || 'Error al guardar');
+    } finally {
+      savingSession = false;
     }
   }
 
@@ -157,6 +181,62 @@
           <span class="tp-brand">FLOW CONNECTED</span>
         </div>
       {/if}
+    </div>
+  </div>
+</div>
+
+<!-- ── Session duration config ──────────────────────────────── -->
+<div class="config-section">
+  <div class="config-header">
+    <span class="config-icon">⏱️</span>
+    <div>
+      <h3 class="config-title">Duración de Sesión</h3>
+      <p class="config-sub">Controla cuánto dura una sesión iniciada antes de requerir volver a ingresar credenciales</p>
+    </div>
+  </div>
+
+  <div class="config-body">
+    <div class="config-field">
+      <label class="config-label" for="session-hours">
+        Operador / Front-desk / Admin (horas)
+        <span class="config-hint">Entre 8 y 16 horas — aplica a todas las estaciones de personal por igual</span>
+      </label>
+      <div class="config-input-row">
+        <input
+          id="session-hours"
+          class="input"
+          type="number"
+          min="8"
+          max="16"
+          step="1"
+          bind:value={sessionDurationHours}
+        />
+        <span class="config-hint">horas</span>
+      </div>
+    </div>
+
+    <div class="config-field">
+      <label class="config-checkbox-row" for="kiosk-no-expiry">
+        <input
+          id="kiosk-no-expiry"
+          type="checkbox"
+          bind:checked={kioskNoExpiry}
+        />
+        <span>
+          El kiosko nunca cierra sesión automáticamente
+          <span class="config-hint">La sesión del kiosko solo termina si alguien cierra sesión manualmente</span>
+        </span>
+      </label>
+    </div>
+
+    <div class="config-input-row">
+      <button
+        class="btn btn-primary"
+        on:click={saveSessionSettings}
+        disabled={savingSession}
+      >
+        {savingSession ? 'Guardando…' : 'Guardar'}
+      </button>
     </div>
   </div>
 </div>
@@ -365,6 +445,24 @@
 }
 
 .config-input-row .input { flex: 1; }
+.config-input-row .input[type="number"] { flex: 0 0 100px; }
+
+.config-checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.config-checkbox-row input[type="checkbox"] {
+  margin-top: 3px;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
 
 /* Mini ticket preview */
 .ticket-preview {

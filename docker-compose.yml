@@ -12,10 +12,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # Init scripts run only on first start (when the data volume is empty).
-      # 01: base schema | 02: refresh_tokens | 03: post-DDL migrations (columns, functions, etc.)
+      # 01: base schema | 02: refresh_tokens | 03: post-DDL migrations (columns, functions, etc.) | 04: ad campaigns
       - ./clinicqueue-DDL.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./apps/api/db/migrations/001_refresh_tokens.sql:/docker-entrypoint-initdb.d/02-refresh-tokens.sql:ro
       - ./docker/init/03-migrations.sql:/docker-entrypoint-initdb.d/03-migrations.sql:ro
+      - ./docker/init/04-ad-campaigns.sql:/docker-entrypoint-initdb.d/04-ad-campaigns.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-clinicqueue_db}"]
       interval: 10s
@@ -46,6 +47,8 @@ services:
     volumes:
       # Persist TTS audio cache across container restarts
       - tts_cache:/app/apps/api/cache
+      # Persist uploaded board ad media (video/images) across container restarts
+      - board_media:/app/apps/api/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,3 +80,4 @@ volumes:
   postgres_data:
   pgadmin_data:
   tts_cache:
+  board_media:

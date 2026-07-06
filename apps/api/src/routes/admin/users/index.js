@@ -5,6 +5,17 @@ const bcrypt = require('bcrypt');
 
 module.exports = async function usersRoutes(fastify) {
     const auth = { preHandler: [fastify.authenticate] };
+    const adminOnly = {
+        preHandler: [
+            fastify.authenticate,
+            async (request, reply) => {
+                const roles = request.user?.role_codes ?? [];
+                if (!roles.includes('ADMIN')) {
+                    return reply.code(403).send({ error: 'Forbidden', message: 'Se requiere rol ADMIN' });
+                }
+            },
+        ],
+    };
 
     // GET /api/admin/users
     fastify.get('/', auth, async (request, reply) => {
@@ -105,6 +116,26 @@ module.exports = async function usersRoutes(fastify) {
         );
         if (!rows.length) return reply.code(404).send({ error: 'Not Found', message: 'User not found' });
         return reply.send({ data: rows[0] });
+    });
+
+    // POST /api/admin/users/:id/revoke-sessions
+    // Immediately invalidates every refresh token this user holds — the
+    // manual kill-switch for a lost/compromised kiosk device now that kiosk
+    // refresh tokens can be configured to never expire on their own.
+    // ADMIN-only: this is a security action, not a routine profile edit.
+    fastify.post('/:id/revoke-sessions', {
+        ...adminOnly,
+        schema: {
+            params: { type: 'object', properties: { id: { type: 'integer' } } },
+        },
+    }, async (request, reply) => {
+        const { id } = request.params;
+        const { rowCount } = await query(
+            `UPDATE clinicqueue.refresh_tokens SET revoked = true, revoked_at = now()
+             WHERE user_id = $1 AND revoked = false`,
+            [id]
+        );
+        return reply.send({ ok: true, revokedCount: rowCount });
     });
 
     // PATCH /api/admin/users/:id/password

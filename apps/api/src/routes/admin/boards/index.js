@@ -1,6 +1,7 @@
 'use strict';
 
 const { query } = require('../../../db/pool');
+const { attachMediaUrls } = require('./mediaService');
 
 module.exports = async function boardsRoutes(fastify) {
     const auth = { preHandler: [fastify.authenticate] };
@@ -10,7 +11,7 @@ module.exports = async function boardsRoutes(fastify) {
             `SELECT * FROM clinicqueue.display_boards ORDER BY board_name`,
             []
         );
-        return reply.send({ data: rows });
+        return reply.send({ data: rows.map(attachMediaUrls) });
     });
 
     fastify.post('/', {
