@@ -248,4 +248,137 @@ async function autoNoShow(limit) {
     return rows[0];
 }
 
-module.exports = { createTicket, callNext, startTicket, recallTicket, finishTicket, cancelTicket, noShowTicket, transferTicket, autoNoShow };
+/**
+ * Verify the requesting user is authorized to operate this station (assigned
+ * via station_users, within its valid window) and return the station's
+ * prefix. Throws 404 if the station doesn't exist/is inactive, 403 if the
+ * user isn't assigned to it. `exec` is a (sql, params) => {rows} callable —
+ * either the pool's `query` or a transaction client's `.query` bound to it —
+ * both share the same call signature.
+ */
+async function assertStationAccess(exec, station_id, user_id) {
+    const { rows: stRows } = await exec(
+        `SELECT prefix FROM clinicqueue.stations WHERE station_id = $1 AND is_active = true`,
+        [station_id]
+    );
+    if (!stRows.length) throw Object.assign(new Error('Station not found or inactive'), { statusCode: 404 });
+
+    const { rows: authRows } = await exec(
+        `SELECT 1 FROM clinicqueue.station_users
+         WHERE station_id = $1 AND user_id = $2 AND is_enabled = true
+           AND (valid_from IS NULL OR valid_from <= now())
+           AND (valid_to   IS NULL OR valid_to   > now())`,
+        [station_id, user_id]
+    );
+    if (!authRows.length) throw Object.assign(new Error('No autorizado para operar esta estación'), { statusCode: 403 });
+
+    return stRows[0].prefix;
+}
+
+/**
+ * Read the admin-configured no-show requeue limit (default 3, no seeded row —
+ * same fallback convention as session_duration_hours_staff).
+ */
+async function getNoShowRequeueLimit(exec) {
+    const { rows } = await exec(
+        `SELECT value FROM clinicqueue.system_settings WHERE key = 'no_show_requeue_limit'`
+    );
+    return Number(rows[0]?.value) || 3;
+}
+
+/**
+ * List today's NO_SHOW tickets for a station's queue (prefix), each annotated
+ * with how many tickets have already been called after it ("gap") and
+ * whether it's still eligible to be requeued under the admin-configured limit.
+ */
+async function listNoShowTickets({ station_id, user_id }) {
+    const prefix = await assertStationAccess(query, station_id, user_id);
+    const limit = await getNoShowRequeueLimit(query);
+
+    const { rows } = await query(
+        `WITH latest_called AS (
+             SELECT MAX(tck_number) AS max_num
+             FROM clinicqueue.tickets
+             WHERE prefix = $1
+               AND ticket_date = current_date
+               AND status IN ('LLAMADO','EN_ATENCION','FINALIZADO','NO_SHOW')
+         )
+         SELECT t.ticket_id, t.code, t.tck_number, t.status, t.called_at, t.created_at,
+                GREATEST(COALESCE(lc.max_num, t.tck_number) - t.tck_number, 0) AS gap
+         FROM clinicqueue.tickets t, latest_called lc
+         WHERE t.prefix = $1
+           AND t.ticket_date = current_date
+           AND t.status = 'NO_SHOW'
+         ORDER BY t.tck_number ASC`,
+        [prefix]
+    );
+
+    return rows.map((r) => ({ ...r, gap: Number(r.gap), eligible: Number(r.gap) <= limit }));
+}
+
+/**
+ * Requeue a NO_SHOW ticket back into EN_COLA so it can be called again.
+ * created_at is intentionally left untouched — call_next_ticket orders purely
+ * by created_at ASC, so the ticket naturally resurfaces ahead of anything
+ * created after it, with no special ordering logic needed. module_id must be
+ * cleared: call_next_ticket only considers tickets with module_id IS NULL.
+ *
+ * The gap/limit check is re-verified here (not trusted from an earlier list
+ * fetch) and done inside a transaction with FOR UPDATE on the ticket row, to
+ * close the race where more tickets get called between listing and requeueing.
+ */
+async function requeueNoShowTicket({ ticket_id, station_id, user_id }) {
+    return transaction(async (client) => {
+        const exec = (sql, params) => client.query(sql, params);
+        const prefix = await assertStationAccess(exec, station_id, user_id);
+
+        const { rows: tRows } = await client.query(
+            `SELECT ticket_id, tck_number FROM clinicqueue.tickets
+             WHERE ticket_id = $1 AND prefix = $2 AND status = 'NO_SHOW' AND ticket_date = current_date
+             FOR UPDATE`,
+            [ticket_id, prefix]
+        );
+        if (!tRows.length) {
+            throw Object.assign(new Error('Turno no encontrado, no está en No-Show, o no pertenece a esta cola'), { statusCode: 404 });
+        }
+        const tckNumber = tRows[0].tck_number;
+
+        const { rows: gapRows } = await client.query(
+            `SELECT MAX(tck_number) AS max_num FROM clinicqueue.tickets
+             WHERE prefix = $1 AND ticket_date = current_date
+               AND status IN ('LLAMADO','EN_ATENCION','FINALIZADO','NO_SHOW')`,
+            [prefix]
+        );
+        const maxNum = gapRows[0].max_num ?? tckNumber;
+        const gap = Math.max(maxNum - tckNumber, 0);
+        const limit = await getNoShowRequeueLimit(exec);
+
+        if (gap > limit) {
+            throw Object.assign(
+                new Error(`No se puede reinsertar: ya se llamaron ${gap} turno(s) después (límite: ${limit})`),
+                { statusCode: 409 }
+            );
+        }
+
+        const { rows } = await client.query(
+            `UPDATE clinicqueue.tickets
+             SET status = 'EN_COLA', station_id = NULL, module_id = NULL,
+                 called_at = NULL, called_by = NULL, started_at = NULL, started_by = NULL,
+                 ended_at = NULL, ended_by = NULL
+             WHERE ticket_id = $1 AND status = 'NO_SHOW'
+             RETURNING *`,
+            [ticket_id]
+        );
+        if (!rows.length) throw Object.assign(new Error('El turno cambió de estado, intente de nuevo'), { statusCode: 409 });
+
+        await client.query(
+            `INSERT INTO clinicqueue.ticket_events (ticket_id, station_id, event_type, from_status, to_status, details, user_id)
+             VALUES ($1, $2, 'TRANSFERRED', 'NO_SHOW', 'EN_COLA', $3, $4)`,
+            [ticket_id, station_id, JSON.stringify({ action: 'REQUEUE_NO_SHOW', gap, limit }), user_id]
+        );
+
+        return rows[0];
+    });
+}
+
+module.exports = { createTicket, callNext, startTicket, recallTicket, finishTicket, cancelTicket, noShowTicket, transferTicket, autoNoShow, listNoShowTickets, requeueNoShowTicket };

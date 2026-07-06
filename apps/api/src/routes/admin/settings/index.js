@@ -58,6 +58,7 @@ module.exports = async function settingsRoutes(fastify) {
                 properties: {
                     session_duration_hours_staff: { type: 'integer', minimum: 8, maximum: 16 },
                     session_kiosk_no_expiry: { type: 'boolean' },
+                    no_show_requeue_limit: { type: 'integer', minimum: 1, maximum: 20 },
                 },
             },
         },

@@ -13,12 +13,17 @@
   let kioskNoExpiry = true;
   let savingSession = false;
 
+  // ── No-Show requeue settings ───────────────────────────────
+  let noShowRequeueLimit = 3;
+  let savingNoShow = false;
+
   onMount(async () => {
     try {
       const res = await api.get('/api/admin/settings');
       ticketCompanyName = res.data?.ticket_company_name ?? '';
       sessionDurationHours = res.data?.session_duration_hours_staff ?? 12;
       kioskNoExpiry = res.data?.session_kiosk_no_expiry ?? true;
+      noShowRequeueLimit = res.data?.no_show_requeue_limit ?? 3;
     } catch {
       // non-critical
     }
@@ -52,6 +57,20 @@
       toasts.error(e.message || 'Error al guardar');
     } finally {
       savingSession = false;
+    }
+  }
+
+  async function saveNoShowSettings() {
+    const limit = Math.min(20, Math.max(1, Math.round(noShowRequeueLimit)));
+    noShowRequeueLimit = limit;
+    savingNoShow = true;
+    try {
+      await api.patch('/api/admin/settings', { no_show_requeue_limit: limit });
+      toasts.success('Límite de reinserción guardado');
+    } catch (e) {
+      toasts.error(e.message || 'Error al guardar');
+    } finally {
+      savingNoShow = false;
     }
   }
 
@@ -236,6 +255,52 @@
         disabled={savingSession}
       >
         {savingSession ? 'Guardando…' : 'Guardar'}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── No-Show requeue config ───────────────────────────────── -->
+<div class="config-section">
+  <div class="config-header">
+    <span class="config-icon">↩️</span>
+    <div>
+      <h3 class="config-title">Reinserción de Turnos No-Show</h3>
+      <p class="config-sub">Controla hasta cuándo un turno marcado como "No-Show" puede volver a la cola de espera</p>
+    </div>
+  </div>
+
+  <div class="config-body">
+    <div class="config-field">
+      <label class="config-label" for="noshow-limit">
+        Límite de turnos llamados
+        <span class="config-hint">
+          Si ya se llamaron más turnos que este número después del No-Show (ej. C07 en
+          No-Show, límite 3: se puede reinsertar hasta que llamen C10; desde C11 en
+          adelante queda bloqueado), ya no podrá reinsertarse.
+        </span>
+      </label>
+      <div class="config-input-row">
+        <input
+          id="noshow-limit"
+          class="input"
+          type="number"
+          min="1"
+          max="20"
+          step="1"
+          bind:value={noShowRequeueLimit}
+        />
+        <span class="config-hint">turnos</span>
+      </div>
+    </div>
+
+    <div class="config-input-row">
+      <button
+        class="btn btn-primary"
+        on:click={saveNoShowSettings}
+        disabled={savingNoShow}
+      >
+        {savingNoShow ? 'Guardando…' : 'Guardar'}
       </button>
     </div>
   </div>

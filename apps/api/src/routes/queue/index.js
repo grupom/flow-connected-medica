@@ -145,6 +145,31 @@ module.exports = async function queueRoutes(fastify) {
         return reply.send({ data: ticket });
     });
 
+    // GET /api/queue/no-show?station_id=X — list today's NO_SHOW tickets for
+    // this station's queue, each annotated with eligibility to be requeued.
+    fastify.get('/no-show', {
+        ...auth,
+        schema: {
+            querystring: {
+                type: 'object',
+                required: ['station_id'],
+                properties: { station_id: { type: 'integer' } },
+            },
+        },
+    }, async (request, reply) => {
+        const list = await svc.listNoShowTickets({
+            station_id: request.query.station_id,
+            user_id: request.user.user_id,
+        });
+        return reply.send({ data: list });
+    });
+
+    // POST /api/queue/requeue-no-show — put a NO_SHOW ticket back into EN_COLA.
+    fastify.post('/requeue-no-show', { ...auth, ...bodyWithTicketId }, async (request, reply) => {
+        const ticket = await svc.requeueNoShowTicket(request.body);
+        return reply.send({ data: ticket });
+    });
+
     // POST /api/queue/auto-no-show/run  (admin only)
     fastify.post('/auto-no-show/run', {
         ...auth,

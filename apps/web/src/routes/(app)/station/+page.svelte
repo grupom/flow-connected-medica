@@ -29,6 +29,12 @@
   let transferReason = '';
   let submittingTransfer = false;
 
+  // No-Show Requeue State
+  let showNoShowModal = false;
+  let noShowList = [];
+  let loadingNoShowList = false;
+  let requeuingTicketId = null;
+
   // ── Derived ────────────────────────────────────────────
   $: selectedStation = stations.find(s => s.station_id == selectedStationId) || null;
   $: stationPrefix = selectedStation?.prefix ?? '';
@@ -254,6 +260,52 @@
     }
   }
 
+  async function openNoShowModal() {
+    showNoShowModal = true;
+    await loadNoShowList();
+  }
+
+  async function loadNoShowList() {
+    if (!selectedStationId) return;
+    loadingNoShowList = true;
+    try {
+      const res = await api.get(`/api/queue/no-show?station_id=${Number(selectedStationId)}`);
+      noShowList = res?.data ?? res ?? [];
+    } catch (e) {
+      toasts.error(e.message || 'Error al cargar turnos No-Show');
+      noShowList = [];
+    } finally {
+      loadingNoShowList = false;
+    }
+  }
+
+  async function requeueTicket(ticketId) {
+    requeuingTicketId = ticketId;
+    try {
+      const res = await api.post('/api/queue/requeue-no-show', {
+        ticket_id: ticketId,
+        station_id: Number(selectedStationId),
+        user_id: $auth.user?.user_id,
+      });
+      const ticket = res?.data ?? res;
+      toasts.success(`Turno ${ticket.code} reinsertado en la cola`);
+      await loadNoShowList();
+      await refreshQueue();
+    } catch (e) {
+      toasts.error(e.message || 'No se pudo reinsertar el turno');
+    } finally {
+      requeuingTicketId = null;
+    }
+  }
+
+  function timeAgo(iso) {
+    if (!iso) return '—';
+    const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+    if (mins < 1) return 'hace un momento';
+    if (mins < 60) return `hace ${mins} min`;
+    return `hace ${Math.floor(mins / 60)}h ${mins % 60}min`;
+  }
+
   // ── Lifecycle ──────────────────────────────────────────
   onMount(async () => {
     await load();
@@ -456,6 +508,16 @@
           <span class="ctrl-icon">🔄</span>
           <span>Transferir</span>
         </button>
+
+        <button
+          class="ctrl-btn ctrl-requeue"
+          on:click={openNoShowModal}
+          disabled={actionLoading}
+          title="Ver y reinsertar turnos marcados como No-Show"
+        >
+          <span class="ctrl-icon">↩️</span>
+          <span>Reinsertar No-Show</span>
+        </button>
       </div>
     </div>
   </div>
@@ -540,6 +602,34 @@
       </button>
     </div>
   </form>
+</Modal>
+
+<!-- ═══════ NO-SHOW REQUEUE MODAL ═══════ -->
+<Modal bind:open={showNoShowModal} title="Turnos No-Show — Reinsertar" size="lg" on:close={() => showNoShowModal = false}>
+  {#if loadingNoShowList}
+    <p class="text-sm muted">Cargando…</p>
+  {:else if noShowList.length === 0}
+    <p class="text-sm muted">No hay turnos marcados como No-Show hoy para esta cola.</p>
+  {:else}
+    <div class="noshow-list">
+      {#each noShowList as t (t.ticket_id)}
+        <div class="noshow-row">
+          <div class="noshow-info">
+            <strong class="noshow-code">{t.code}</strong>
+            <span class="noshow-meta">No-Show {timeAgo(t.called_at)} · brecha: {t.gap} turno(s)</span>
+          </div>
+          <button
+            class="btn btn-primary btn-sm"
+            disabled={!t.eligible || requeuingTicketId === t.ticket_id}
+            title={t.eligible ? 'Reinsertar en la cola' : `Bloqueado: ya se llamaron ${t.gap} turnos después (límite excedido)`}
+            on:click={() => requeueTicket(t.ticket_id)}
+          >
+            {requeuingTicketId === t.ticket_id ? 'Reinsertando…' : 'Reinsertar'}
+          </button>
+        </div>
+      {/each}
+    </div>
+  {/if}
 </Modal>
 
 <style>
@@ -813,6 +903,18 @@
 .ctrl-cancel:hover:not(:disabled) { background: #fee2e2; }
 .ctrl-transfer { background: #f0f9ff; border-color: #93c5fd; color: #1d4ed8; }
 .ctrl-transfer:hover:not(:disabled) { background: #dbeafe; }
+.ctrl-requeue { background: #faf5ff; border-color: #d8b4fe; color: #6b21a8; }
+.ctrl-requeue:hover:not(:disabled) { background: #f3e8ff; }
+
+/* ═══════ NO-SHOW REQUEUE MODAL ═══════ */
+.noshow-list { display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto; }
+.noshow-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.noshow-info { display: flex; flex-direction: column; gap: 2px; }
+.noshow-code { font-size: 1rem; color: var(--text); }
+.noshow-meta { font-size: .75rem; color: var(--text-muted); }
 
 /* ═══════ BOTTOM ROW ═══════ */
 .bottom-row {

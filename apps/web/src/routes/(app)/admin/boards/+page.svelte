@@ -60,7 +60,10 @@
 
   function openEdit(b) {
     editBoard = b;
-    boardForm = { board_name: b.board_name, board_code: b.board_code, description: b.description ?? '', voice_speed: b.voice_speed ?? 1.0, language: b.language ?? 'es', ding_sound: b.ding_sound ?? 'gentle' };
+    // voice_speed is a Postgres NUMERIC column, returned by the API as a string
+    // (e.g. "1.00") to avoid float precision loss — must coerce to Number so it
+    // matches one of the <select>'s numeric option values, or the field renders blank.
+    boardForm = { board_name: b.board_name, board_code: b.board_code, description: b.description ?? '', voice_speed: Number(b.voice_speed ?? 1.0), language: b.language ?? 'es', ding_sound: b.ding_sound ?? 'gentle' };
     showBoardModal = true;
   }
 
