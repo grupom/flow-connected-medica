@@ -4,6 +4,7 @@
   import { auth } from '$lib/auth.js';
   import { toasts } from '$lib/stores.js';
   import Modal from '$lib/components/Modal.svelte';
+  import { printTicket } from '$lib/printing/printTicket.js';
 
   // ── State ──────────────────────────────────────────────
   let stations = [];
@@ -176,13 +177,33 @@
     if (!calledTicket || calledTicket.status !== 'EN_ATENCION') return;
     actionLoading = true;
     try {
-      await api.post('/api/queue/finish', {
+      const res = await api.post('/api/queue/finish', {
         ticket_id: calledTicket.ticket_id,
         station_id: Number(selectedStationId),
         user_id: $auth.user?.user_id
       });
+      const result = res?.data ?? res;
       toasts.success('Atención finalizada ✅');
       calledTicket = null;
+
+      // If this ticket belongs to a multi-area visit plan, the next step's
+      // ticket was just created — print it right here so staff can hand it
+      // to the patient immediately.
+      if (result?.next_ticket) {
+        const nt = result.next_ticket;
+        try {
+          await printTicket({
+            code: nt.code,
+            prefix: nt.prefix,
+            service_name: nt.service_name,
+            tck_number: nt.tck_number,
+          });
+          toasts.success(`Siguiente turno del plan: ${nt.code} (${nt.service_name}) — impreso`);
+        } catch (printErr) {
+          toasts.error(`Turno ${nt.code} (${nt.service_name}) creado pero falló al imprimir: ${printErr.message}`);
+        }
+      }
+
       await refreshQueue();
     } catch (e) {
       toasts.error(e.message || 'Error al finalizar');
@@ -848,12 +869,12 @@
   gap: 8px;
 }
 .cp-buttons-sm {
-  flex-direction: row;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 .cp-buttons-sm .ctrl-btn {
-  flex: 1;
-  min-width: 100px;
+  min-width: 0;
 }
 .cp-divider {
   height: 1px;
@@ -1010,10 +1031,7 @@
     grid-template-columns: repeat(2, 1fr);
   }
   .cp-buttons-sm {
-    flex-direction: column;
-  }
-  .cp-buttons-sm .ctrl-btn {
-    min-width: auto;
+    grid-template-columns: 1fr;
   }
 }
 

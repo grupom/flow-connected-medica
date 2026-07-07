@@ -5,13 +5,21 @@
   import { toasts } from '$lib/stores.js';
   import { fade, slide, scale } from 'svelte/transition';
   import { printTicket } from '$lib/printing/printTicket.js';
+  import Modal from '$lib/components/Modal.svelte';
 
   let services = [];
+  let allQueues = []; // unfiltered active queues — used by the multi-area plan modal
   let waitingCounts = {};
   let loading = true;
   let issuing = null;
   let lastTicket = null;
+  let lastPlan = null; // { visit_plan_id, first_ticket, chain } — set after creating a multi-area plan
   let pollInterval;
+
+  // Multi-queue visit plan state
+  let showPlanModal = false;
+  let planSelectedPrefixes = []; // ordered array of prefix strings — first = first stop
+  let submittingPlan = false;
 
   onMount(async () => {
     await loadInitialData();
@@ -29,6 +37,9 @@
       // Show: regular walkin prefixes + priority prefixes (staff-only, never kiosk)
       // Exclude: non-walkin, non-priority prefixes (appointment-only)
       services = (res.data || []).filter(s => s.service_name && (s.allow_walkins || s.is_priority_for));
+      // Multi-area visit plans aren't walk-ins — staff can chain to ANY active queue,
+      // including appointment-only areas (e.g. Imágenes) excluded from `services` above.
+      allQueues = (res.data || []).filter(s => s.service_name);
       await loadMetrics();
     } catch (e) {
       toasts.error('Error cargando servicios: ' + e.message);
@@ -88,6 +99,70 @@
       issuing = null;
     }
   }
+
+  function openPlanModal() {
+    planSelectedPrefixes = [];
+    showPlanModal = true;
+  }
+
+  function togglePlanPrefix(prefix) {
+    const idx = planSelectedPrefixes.indexOf(prefix);
+    if (idx === -1) planSelectedPrefixes = [...planSelectedPrefixes, prefix];
+    else planSelectedPrefixes = planSelectedPrefixes.filter(p => p !== prefix);
+  }
+
+  function movePlanStep(idx, dir) {
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= planSelectedPrefixes.length) return;
+    const copy = [...planSelectedPrefixes];
+    [copy[idx], copy[newIdx]] = [copy[newIdx], copy[idx]];
+    planSelectedPrefixes = copy;
+  }
+
+  function queueName(prefix) {
+    return allQueues.find(q => q.prefix === prefix)?.service_name || prefix;
+  }
+
+  async function submitVisitPlan() {
+    if (planSelectedPrefixes.length < 2) {
+      toasts.error('Seleccione al menos 2 áreas para crear un plan de visita');
+      return;
+    }
+    submittingPlan = true;
+    try {
+      const res = await api.post('/api/queue/visit-plan', {
+        created_by: $auth.user?.user_id,
+        steps: planSelectedPrefixes.map(prefix => ({ prefix })),
+      });
+      const plan = res.data || res;
+      lastPlan = plan;
+      showPlanModal = false;
+
+      lastTicket = {
+        code: plan.first_ticket.code,
+        serviceName: plan.first_ticket.service_name,
+        timestamp: new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      };
+      toasts.success(`Plan de visita creado. Turno actual: ${plan.first_ticket.code}`);
+
+      try {
+        await printTicket({
+          code: plan.first_ticket.code,
+          prefix: plan.first_ticket.prefix,
+          service_name: plan.first_ticket.service_name,
+          tck_number: plan.first_ticket.tck_number,
+        });
+      } catch (printErr) {
+        toasts.error(`Turno emitido pero falló al imprimir: ${printErr.message}`);
+      }
+
+      await loadMetrics();
+    } catch (e) {
+      toasts.error('Error creando plan de visita: ' + (e.message || e));
+    } finally {
+      submittingPlan = false;
+    }
+  }
 </script>
 
 <div class="front-desk-container">
@@ -98,6 +173,12 @@
       <p>Cargando servicios...</p>
     </div>
   {:else}
+    <div class="front-desk-toolbar">
+      <button class="btn btn-ghost" on:click={openPlanModal}>
+        📋 Registrar visita con varias áreas
+      </button>
+    </div>
+
     <div class="services-grid">
       {#each services as svc}
         <button
@@ -144,9 +225,9 @@
         <div class="ticket-modal" in:scale={{ duration: 300, start: 0.9 }}>
           <div class="modal-header">
              <span class="badge-success">EMITIDO</span>
-             <button class="close-btn" on:click={() => lastTicket = null}>✕</button>
+             <button class="close-btn" on:click={() => { lastTicket = null; lastPlan = null; }}>✕</button>
           </div>
-          
+
           <div class="ticket-body">
             <span class="ticket-label">SU TURNO ES</span>
             <h2 class="ticket-number">{lastTicket.code}</h2>
@@ -154,14 +235,63 @@
               <span class="svc-name">{lastTicket.serviceName}</span>
               <span class="timestamp">{lastTicket.timestamp}</span>
             </div>
+            {#if lastPlan}
+              <p class="plan-summary-note">
+                Después: {lastPlan.chain.slice(1).map(s => s.service_name).join(' → ')}
+              </p>
+            {/if}
           </div>
-          
+
           <div class="modal-actions">
-            <button class="btn btn-primary btn-block" on:click={() => lastTicket = null}>LISTO</button>
+            <button class="btn btn-primary btn-block" on:click={() => { lastTicket = null; lastPlan = null; }}>LISTO</button>
           </div>
         </div>
       </div>
     {/if}
+
+    <Modal bind:open={showPlanModal} title="Plan de visita — múltiples áreas" size="md" on:close={() => showPlanModal = false}>
+      <p class="text-sm muted mb-16">
+        Seleccione las áreas y su orden. El primer turno se emite ahora; los demás se
+        imprimen automáticamente al finalizar cada etapa.
+      </p>
+
+      <div class="plan-checklist">
+        {#each allQueues as q}
+          <label class="plan-check-row">
+            <input type="checkbox"
+                   checked={planSelectedPrefixes.includes(q.prefix)}
+                   on:change={() => togglePlanPrefix(q.prefix)} />
+            <span>{q.icon || '📝'} {q.service_name}</span>
+          </label>
+        {/each}
+      </div>
+
+      {#if planSelectedPrefixes.length > 0}
+        <div class="plan-order-list">
+          <strong class="text-sm">Orden del plan:</strong>
+          {#each planSelectedPrefixes as prefix, idx}
+            <div class="plan-order-row">
+              <span>{idx + 1}. {queueName(prefix)}</span>
+              <button type="button" class="btn btn-ghost btn-sm" on:click={() => movePlanStep(idx, -1)} disabled={idx === 0}>↑</button>
+              <button type="button" class="btn btn-ghost btn-sm" on:click={() => movePlanStep(idx, 1)} disabled={idx === planSelectedPrefixes.length - 1}>↓</button>
+            </div>
+          {/each}
+          <p class="plan-preview text-sm">
+            Primero: <strong>{queueName(planSelectedPrefixes[0])}</strong>
+            {#if planSelectedPrefixes.length > 1}
+              , luego: <strong>{planSelectedPrefixes.slice(1).map(queueName).join(' → ')}</strong>
+            {/if}
+          </p>
+        </div>
+      {/if}
+
+      <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
+        <button type="button" class="btn btn-ghost" on:click={() => showPlanModal = false}>Cancelar</button>
+        <button type="button" class="btn btn-primary" disabled={planSelectedPrefixes.length < 2 || submittingPlan} on:click={submitVisitPlan}>
+          {submittingPlan ? 'Creando…' : 'Crear plan y emitir primer turno'}
+        </button>
+      </div>
+    </Modal>
   {/if}
 </div>
 
@@ -441,5 +571,54 @@
   @media (max-width: 640px) {
     .ticket-number { font-size: 5rem; }
     .services-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ═══════ Multi-area visit plan ═══════ */
+  .front-desk-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 16px;
+  }
+  .plan-checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 260px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+  }
+  .plan-check-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  .plan-order-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    background: #f8fafc;
+    border-radius: var(--radius-sm);
+  }
+  .plan-order-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .plan-order-row span { flex: 1; font-size: 0.9rem; }
+  .plan-preview {
+    margin: 8px 0 0;
+    color: var(--text-muted);
+  }
+  .plan-summary-note {
+    margin-top: 12px;
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    text-align: center;
   }
 </style>

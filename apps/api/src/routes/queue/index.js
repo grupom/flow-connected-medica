@@ -145,6 +145,33 @@ module.exports = async function queueRoutes(fastify) {
         return reply.send({ data: ticket });
     });
 
+    // POST /api/queue/visit-plan — pre-register a patient into an ordered
+    // chain of 2+ queues; only the first step's ticket is created now.
+    fastify.post('/visit-plan', {
+        ...auth,
+        schema: {
+            body: {
+                type: 'object',
+                required: ['created_by', 'steps'],
+                properties: {
+                    created_by: { type: 'integer' },
+                    steps: {
+                        type: 'array',
+                        minItems: 2,
+                        items: {
+                            type: 'object',
+                            required: ['prefix'],
+                            properties: { prefix: { type: 'string' } },
+                        },
+                    },
+                },
+            },
+        },
+    }, async (request, reply) => {
+        const plan = await svc.createVisitPlan(request.body);
+        return reply.code(201).send({ data: plan });
+    });
+
     // GET /api/queue/no-show?station_id=X — list today's NO_SHOW tickets for
     // this station's queue, each annotated with eligibility to be requeued.
     fastify.get('/no-show', {

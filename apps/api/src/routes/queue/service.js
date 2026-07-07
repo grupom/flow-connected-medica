@@ -107,22 +107,167 @@ async function recallTicket({ ticket_id, station_id, user_id, reason }) {
 }
 
 /**
- * Finish service on a ticket.
+ * Finish service on a ticket. If the ticket belongs to a multi-queue visit
+ * plan (visit_plan_id set) and there's a next pending step, that step's
+ * ticket is created now (lazily — it never sat in EN_COLA before its turn)
+ * and returned as `next_ticket` for the caller to auto-print. For tickets
+ * with no plan, behavior is identical to before this feature (next_ticket
+ * is simply null).
  */
 async function finishTicket({ ticket_id, station_id, user_id, notes }) {
-    const { rows } = await query(
-        `UPDATE clinicqueue.tickets
-     SET status = 'FINALIZADO', ended_at = now(), ended_by = $2
-     WHERE ticket_id = $1 AND status = 'EN_ATENCION'
-     RETURNING *`,
-        [ticket_id, user_id]
-    );
-    if (!rows.length) throw Object.assign(new Error('Ticket not in EN_ATENCION state'), { statusCode: 409 });
-    await query(
-        `INSERT INTO clinicqueue.ticket_events (ticket_id, station_id, event_type, from_status, to_status, details, user_id) VALUES ($1, $2, 'FINISHED', 'EN_ATENCION', 'FINALIZADO', $3, $4)`,
-        [ticket_id, station_id, notes ? JSON.stringify({ notes }) : null, user_id]
-    );
-    return rows[0];
+    return transaction(async (client) => {
+        const { rows } = await client.query(
+            `UPDATE clinicqueue.tickets
+         SET status = 'FINALIZADO', ended_at = now(), ended_by = $2
+         WHERE ticket_id = $1 AND status = 'EN_ATENCION'
+         RETURNING *`,
+            [ticket_id, user_id]
+        );
+        if (!rows.length) throw Object.assign(new Error('Ticket not in EN_ATENCION state'), { statusCode: 409 });
+        const finished = rows[0];
+
+        await client.query(
+            `INSERT INTO clinicqueue.ticket_events (ticket_id, station_id, event_type, from_status, to_status, details, user_id) VALUES ($1, $2, 'FINISHED', 'EN_ATENCION', 'FINALIZADO', $3, $4)`,
+            [ticket_id, station_id, notes ? JSON.stringify({ notes }) : null, user_id]
+        );
+
+        let next_ticket = null;
+        if (finished.visit_plan_id) {
+            const { rows: curStepRows } = await client.query(
+                `SELECT step_order FROM clinicqueue.visit_plan_steps
+                 WHERE visit_plan_id = $1 AND ticket_id = $2
+                 FOR UPDATE`,
+                [finished.visit_plan_id, ticket_id]
+            );
+            if (curStepRows.length) {
+                const currentOrder = curStepRows[0].step_order;
+                const { rows: nextStepRows } = await client.query(
+                    `SELECT step_id, prefix FROM clinicqueue.visit_plan_steps
+                     WHERE visit_plan_id = $1 AND step_order = $2 AND ticket_id IS NULL
+                     FOR UPDATE`,
+                    [finished.visit_plan_id, currentOrder + 1]
+                );
+                if (nextStepRows.length) {
+                    const nextStep = nextStepRows[0];
+                    const { rows: planRows } = await client.query(
+                        `SELECT created_by FROM clinicqueue.visit_plans WHERE visit_plan_id = $1`,
+                        [finished.visit_plan_id]
+                    );
+                    const planCreatedBy = planRows[0]?.created_by ?? user_id;
+
+                    const { rows: tRows } = await client.query(
+                        `SELECT * FROM clinicqueue.create_ticket($1, $2, $3)`,
+                        [nextStep.prefix, planCreatedBy, false]
+                    );
+                    const dbResult = tRows[0];
+                    const newTicketId = dbResult.out_ticket_id;
+
+                    await client.query(
+                        `UPDATE clinicqueue.ticket_events SET details = COALESCE(details, '{}'::jsonb) || $2::jsonb
+                         WHERE ticket_id = $1 AND event_type = 'CREATED'`,
+                        [newTicketId, JSON.stringify({ visit_plan_id: finished.visit_plan_id, step_order: currentOrder + 1 })]
+                    );
+                    await client.query(`UPDATE clinicqueue.tickets SET visit_plan_id = $1 WHERE ticket_id = $2`, [finished.visit_plan_id, newTicketId]);
+                    await client.query(`UPDATE clinicqueue.visit_plan_steps SET ticket_id = $1 WHERE step_id = $2`, [newTicketId, nextStep.step_id]);
+
+                    const { rows: sRows } = await client.query(
+                        `SELECT service_name FROM clinicqueue.queue_settings WHERE prefix = $1`,
+                        [nextStep.prefix]
+                    );
+                    next_ticket = {
+                        ticket_id: newTicketId,
+                        prefix: dbResult.out_prefix,
+                        tck_number: dbResult.out_tck_number,
+                        code: dbResult.out_code,
+                        status: dbResult.out_status,
+                        service_name: sRows[0]?.service_name || nextStep.prefix,
+                    };
+                }
+            }
+        }
+
+        return { ...finished, next_ticket };
+    });
+}
+
+/**
+ * Create a multi-queue visit plan: an ordered chain of queues a patient will
+ * visit in sequence (e.g. Laboratorio -> Imágenes), registered up front at
+ * intake/billing. Only the FIRST step's ticket is created now (via the
+ * existing clinicqueue.create_ticket() function, unchanged); later steps are
+ * created lazily by finishTicket() as each prior step completes, so a future
+ * step never sits in EN_COLA (and can't be called) before its turn.
+ */
+async function createVisitPlan({ created_by, steps }) {
+    if (!Array.isArray(steps) || steps.length < 2) {
+        throw Object.assign(new Error('Un plan de visita requiere al menos 2 áreas; use /create-ticket para una sola cola'), { statusCode: 400 });
+    }
+    const prefixes = steps.map((s) => String(s.prefix).trim().toUpperCase());
+    if (new Set(prefixes).size !== prefixes.length) {
+        throw Object.assign(new Error('No se puede repetir la misma cola dentro de un mismo plan'), { statusCode: 400 });
+    }
+
+    return transaction(async (client) => {
+        const { rows: qsRows } = await client.query(
+            `SELECT prefix, service_name FROM clinicqueue.queue_settings WHERE prefix = ANY($1) AND archived = false`,
+            [prefixes]
+        );
+        const found = new Map(qsRows.map((r) => [r.prefix, r.service_name]));
+        const missing = prefixes.filter((p) => !found.has(p));
+        if (missing.length) {
+            throw Object.assign(new Error(`Cola(s) inválida(s) o archivada(s): ${missing.join(', ')}`), { statusCode: 400 });
+        }
+
+        const { rows: planRows } = await client.query(
+            `INSERT INTO clinicqueue.visit_plans (created_by) VALUES ($1) RETURNING visit_plan_id`,
+            [created_by]
+        );
+        const visitPlanId = planRows[0].visit_plan_id;
+
+        const stepRows = [];
+        for (let i = 0; i < prefixes.length; i++) {
+            const { rows } = await client.query(
+                `INSERT INTO clinicqueue.visit_plan_steps (visit_plan_id, step_order, prefix)
+                 VALUES ($1, $2, $3) RETURNING step_id, step_order, prefix`,
+                [visitPlanId, i + 1, prefixes[i]]
+            );
+            stepRows.push(rows[0]);
+        }
+
+        const firstPrefix = prefixes[0];
+        const { rows: tRows } = await client.query(
+            `SELECT * FROM clinicqueue.create_ticket($1, $2, $3)`,
+            [firstPrefix, created_by, false]
+        );
+        const dbResult = tRows[0];
+        const firstTicketId = dbResult.out_ticket_id;
+
+        await client.query(
+            `UPDATE clinicqueue.ticket_events SET details = COALESCE(details, '{}'::jsonb) || $2::jsonb
+             WHERE ticket_id = $1 AND event_type = 'CREATED'`,
+            [firstTicketId, JSON.stringify({ visit_plan_id: visitPlanId, step_order: 1 })]
+        );
+        await client.query(`UPDATE clinicqueue.tickets SET visit_plan_id = $1 WHERE ticket_id = $2`, [visitPlanId, firstTicketId]);
+        await client.query(`UPDATE clinicqueue.visit_plan_steps SET ticket_id = $1 WHERE step_id = $2`, [firstTicketId, stepRows[0].step_id]);
+
+        const first_ticket = {
+            ticket_id: firstTicketId,
+            prefix: dbResult.out_prefix,
+            tck_number: dbResult.out_tck_number,
+            code: dbResult.out_code,
+            status: dbResult.out_status,
+            service_name: found.get(firstPrefix),
+        };
+
+        const chain = stepRows.map((s, i) => ({
+            prefix: s.prefix,
+            service_name: found.get(s.prefix),
+            step_order: s.step_order,
+            status: i === 0 ? 'active' : 'pending',
+        }));
+
+        return { visit_plan_id: visitPlanId, first_ticket, chain };
+    });
 }
 
 /**
@@ -381,4 +526,4 @@ async function requeueNoShowTicket({ ticket_id, station_id, user_id }) {
     });
 }
 
-module.exports = { createTicket, callNext, startTicket, recallTicket, finishTicket, cancelTicket, noShowTicket, transferTicket, autoNoShow, listNoShowTickets, requeueNoShowTicket };
+module.exports = { createTicket, callNext, startTicket, recallTicket, finishTicket, cancelTicket, noShowTicket, transferTicket, autoNoShow, listNoShowTickets, requeueNoShowTicket, createVisitPlan };
