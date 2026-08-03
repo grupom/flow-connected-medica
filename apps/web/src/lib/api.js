@@ -1,31 +1,34 @@
 import { auth } from './auth.js';
-import { get } from 'svelte/store';
 
 // PUBLIC_API_URL vacío ('') → rutas relativas (/api/...) — mismo origen que el servidor.
 // PUBLIC_API_URL=http://host:port → URL absoluta (útil en desarrollo con Vite standalone).
 // ?? en lugar de || para que el string vacío sea respetado (|| lo ignora por ser falsy).
+// NOTA: con cookies sameSite=lax, el modo standalone (host distinto del proxy
+// de Vite) ya no recibe la cookie de sesión — solo el proxy de Vite (mismo
+// origen percibido por el navegador) funciona para el flujo de auth ahora.
 let API_BASE = import.meta.env.PUBLIC_API_URL ?? '';
 
 let isRefreshing = false;
 let refreshQueue = [];
 
-function processQueue(error, token = null) {
-    refreshQueue.forEach((p) => (error ? p.reject(error) : p.resolve(token)));
+function processQueue(error, user = null) {
+    refreshQueue.forEach((p) => (error ? p.reject(error) : p.resolve(user)));
     refreshQueue = [];
 }
 
-async function doRefreshRequest(refreshToken) {
+async function doRefreshRequest() {
+    // No body — the refresh cookie (cq_refresh_token, scoped to /api/auth)
+    // rides along automatically via credentials: 'include'.
     const res = await fetch(`${API_BASE}/api/auth/refresh`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
+        credentials: 'include',
     });
     if (!res.ok) {
         const err = new Error(`Refresh failed with ${res.status}`);
         err.status = res.status;
         throw err;
     }
-    return res.json(); // { accessToken, refreshToken, user }
+    return res.json(); // { user } — access/refresh cookies arrive via Set-Cookie, not the body
 }
 
 // Retry schedule for a failed refresh caused by a network error or 5xx (NOT a
@@ -34,72 +37,52 @@ async function doRefreshRequest(refreshToken) {
 const REFRESH_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000];
 
 /**
- * Single entry point for rotating the session's tokens — shared by
- * apiFetch's 401 handler AND the app-shell rehydration in
- * (app)/+layout.svelte, so there is only ever one refresh call in flight
- * per tab (cross-tab coordination lives in auth.js's storage listener).
- * Previously +layout.svelte called the refresh endpoint directly, bypassing
- * this mutex, which let two refresh requests race the backend and log the
- * loser out well before the refresh token's real expiry.
+ * Single entry point for rotating the session — shared by apiFetch's 401
+ * handler AND the app-shell rehydration in (app)/+layout.svelte, so there is
+ * only ever one refresh call in flight per tab. Cross-tab coordination needs
+ * no explicit code now: the httpOnly refresh cookie is shared by the browser
+ * across every tab automatically, so a rotation or logout in one tab is
+ * simply reflected in whatever the next request from any other tab sends.
  *
  * Retries with backoff (~15s total) on a network error or 5xx before giving
- * up — only an explicit 401 (token genuinely revoked/expired) is treated as
- * fatal immediately.
+ * up — only an explicit 401 (cookie genuinely missing/revoked/expired) is
+ * treated as fatal immediately.
  *
- * @returns {Promise<{accessToken:string, refreshToken:string, user:object}>}
+ * @returns {Promise<{user: object}>}
  */
 export async function refreshSession() {
     if (isRefreshing) {
-        const accessToken = await new Promise((resolve, reject) => {
+        const user = await new Promise((resolve, reject) => {
             refreshQueue.push({ resolve, reject });
         });
-        return { accessToken, refreshToken: auth.getRefreshToken(), user: get(auth).user };
-    }
-
-    const refreshToken = auth.getRefreshToken();
-    if (!refreshToken) {
-        const err = new Error('No refresh token');
-        err.status = 401;
-        throw err;
+        return { user };
     }
 
     isRefreshing = true;
     try {
         let result;
         try {
-            result = await doRefreshRequest(refreshToken);
+            result = await doRefreshRequest();
         } catch (err) {
             if (err.status === 401) {
-                // A 401 here can legitimately mean another tab already
-                // rotated this exact token (see auth.js's storage listener)
-                // rather than the session actually being dead. If the
-                // stored refresh token has since changed out from under us,
-                // trust that tab's rotation instead of logging out.
-                const currentToken = auth.getRefreshToken();
-                if (currentToken && currentToken !== refreshToken) {
-                    const current = get(auth);
-                    result = { accessToken: current.accessToken, refreshToken: currentToken, user: current.user };
-                } else {
-                    throw err; // definitive — not worth retrying
-                }
-            } else {
-                // Transient (network hiccup / 5xx, e.g. the API restarting mid-deploy) —
-                // retry with backoff before giving up.
-                for (const delay of REFRESH_RETRY_DELAYS_MS) {
-                    await new Promise((r) => setTimeout(r, delay));
-                    try {
-                        result = await doRefreshRequest(refreshToken);
-                        break;
-                    } catch (retryErr) {
-                        err = retryErr;
-                        if (retryErr.status === 401) break; // now definitive — stop retrying
-                    }
-                }
-                if (!result) throw err;
+                throw err; // definitive — no cookie, or it's genuinely dead
             }
+            // Transient (network hiccup / 5xx, e.g. the API restarting mid-deploy) —
+            // retry with backoff before giving up.
+            for (const delay of REFRESH_RETRY_DELAYS_MS) {
+                await new Promise((r) => setTimeout(r, delay));
+                try {
+                    result = await doRefreshRequest();
+                    break;
+                } catch (retryErr) {
+                    err = retryErr;
+                    if (retryErr.status === 401) break; // now definitive — stop retrying
+                }
+            }
+            if (!result) throw err;
         }
-        if (result.accessToken !== get(auth).accessToken) auth.setAuth(result);
-        processQueue(null, result.accessToken);
+        auth.setUser(result.user);
+        processQueue(null, result.user);
         return result;
     } catch (err) {
         processQueue(err);
@@ -117,31 +100,25 @@ export async function refreshSession() {
  * @returns {Promise<any>}  Parsed JSON
  */
 async function apiFetch(path, options = {}) {
-    const { accessToken } = get(auth);
-
     const headers = {
         // FormData bodies must NOT get an explicit Content-Type — the browser sets
         // "multipart/form-data; boundary=..." itself, which we can't replicate here.
         ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         ...options.headers,
     };
 
-    let res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    let res = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: 'include' });
 
-    // ── Token expired → try refresh ───────────────────────────────────────
+    // ── Session cookie expired → try refresh ──────────────────────────────
     if (res.status === 401) {
-        let newAccessToken;
         try {
-            ({ accessToken: newAccessToken } = await refreshSession());
+            await refreshSession();
         } catch (err) {
             auth.logout();
             if (typeof window !== 'undefined') window.location.href = '/login';
             throw new Error('Session expired');
         }
-
-        headers['Authorization'] = `Bearer ${newAccessToken}`;
-        res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+        res = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: 'include' });
     }
 
     // ── Parse response ────────────────────────────────────────────────────
@@ -181,15 +158,14 @@ export const api = {
      * Multipart upload with progress reporting — fetch() has no upload.onprogress,
      * so this uses XMLHttpRequest instead of going through apiFetch. Intentional
      * simplification: does not share apiFetch's 401-refresh mutex; on an expired
-     * token the caller gets a 401 and can retry after a normal navigation refreshes it.
+     * session the caller gets a 401 and can retry after a normal navigation refreshes it.
      * Acceptable here since uploads are an admin-only, low-frequency action.
      */
     upload: (path, formData, { onProgress } = {}) => {
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             xhr.open('POST', `${API_BASE}${path}`);
-            const { accessToken } = get(auth);
-            if (accessToken) xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+            xhr.withCredentials = true;
             xhr.upload.onprogress = (e) => {
                 if (e.lengthComputable) onProgress?.(e.loaded, e.total);
             };
@@ -211,7 +187,7 @@ export const api = {
     /** Raw fetch without auth header (for login, public routes) */
     public: {
         get: (path) =>
-            fetch(`${API_BASE}${path}`).then(async (r) => {
+            fetch(`${API_BASE}${path}`, { credentials: 'include' }).then(async (r) => {
                 const json = await r.json();
                 if (!r.ok) throw Object.assign(new Error(json.message || 'Error'), { data: json });
                 return json;
@@ -220,6 +196,7 @@ export const api = {
             fetch(`${API_BASE}${path}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify(body),
             }).then(async (r) => {
                 const json = await r.json();

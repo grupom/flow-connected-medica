@@ -1,5 +1,6 @@
 'use strict';
 
+const bcrypt = require('bcrypt');
 const { query } = require('../../../db/pool');
 
 // Tables wiped on factory-reset (order respects FK dependencies).
@@ -21,18 +22,7 @@ const RESET_TABLES = [
 ];
 
 module.exports = async function settingsRoutes(fastify) {
-    const auth      = { preHandler: [fastify.authenticate] };
-    const adminOnly = {
-        preHandler: [
-            fastify.authenticate,
-            async (request, reply) => {
-                const roles = request.user?.role_codes ?? [];
-                if (!roles.includes('ADMIN')) {
-                    return reply.code(403).send({ error: 'Forbidden', message: 'Se requiere rol ADMIN' });
-                }
-            },
-        ],
-    };
+    const auth = { preHandler: [fastify.authenticate] };
 
     // GET /api/admin/settings
     // Returns all system settings as a flat key→value object
@@ -49,7 +39,7 @@ module.exports = async function settingsRoutes(fastify) {
     // ADMIN-only: this endpoint can change security-relevant settings
     // (e.g. session_duration_hours_staff), not just cosmetic ones.
     fastify.patch('/', {
-        ...adminOnly,
+        ...fastify.adminOnly,
         schema: {
             body: {
                 type: 'object',
@@ -86,7 +76,32 @@ module.exports = async function settingsRoutes(fastify) {
     // POST /api/admin/settings/factory-reset
     // Wipes all operational data (tickets, stations, boards, kiosks, etc.)
     // and resets sequences. Roles and users are preserved.
-    fastify.post('/factory-reset', adminOnly, async (_request, reply) => {
+    // Requires the calling admin's own current password — a valid ADMIN
+    // token alone (e.g. leaked/stolen) is not enough to trigger this
+    // irreversible action. The frontend's "type RESET" prompt is a UX
+    // safety net against fat-fingering, not a security boundary: it's a
+    // client-side check readable in the bundled JS, so it can't be what
+    // stops a stolen token from being enough.
+    fastify.post('/factory-reset', {
+        ...fastify.adminOnly,
+        schema: {
+            body: {
+                type: 'object',
+                required: ['password'],
+                properties: { password: { type: 'string', minLength: 1 } },
+            },
+        },
+    }, async (request, reply) => {
+        const { rows } = await query(
+            `SELECT password_hash FROM clinicqueue.users WHERE user_id = $1`,
+            [request.user.user_id]
+        );
+        const passwordHash = rows[0]?.password_hash;
+        const passOk = passwordHash && await bcrypt.compare(request.body.password, passwordHash);
+        if (!passOk) {
+            return reply.code(401).send({ error: 'Unauthorized', message: 'Contraseña incorrecta' });
+        }
+
         const tableList = RESET_TABLES.join(', ');
         await query(`TRUNCATE ${tableList} RESTART IDENTITY CASCADE`);
         return reply.send({

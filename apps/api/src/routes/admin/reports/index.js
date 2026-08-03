@@ -2,6 +2,38 @@
 
 const { query } = require('../../../db/pool');
 
+/**
+ * Builds a `WHERE a AND b AND ...` clause (or '' if every part is falsy)
+ * plus its positional parameter values, in one pass. Each part is either
+ * `null`/`undefined` (skipped), `[sql]` for a condition with no bind value
+ * (e.g. a CURRENT_DATE default), or `[sql, value]` where `?` in `sql` is
+ * replaced with the correct `$N`.
+ *
+ * Centralizes what each report endpoint used to hand-roll separately —
+ * tracking its own paramIndex and re-deriving which values belong to the
+ * WHERE clause vs. trailing params (pagination, etc) via slice() arithmetic
+ * tied to a hardcoded parameter count. Here the WHERE-clause values are
+ * simply `values`, returned directly — no arithmetic to keep in sync.
+ */
+function buildWhere(...parts) {
+    const conditions = [];
+    const values = [];
+    for (const part of parts) {
+        if (!part) continue;
+        const [sql, value] = part;
+        if (part.length > 1) {
+            values.push(value);
+            conditions.push(sql.replace('?', `$${values.length}`));
+        } else {
+            conditions.push(sql);
+        }
+    }
+    return {
+        clause: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
+        values,
+    };
+}
+
 module.exports = async function reportsRoutes(fastify) {
     const auth = { preHandler: [fastify.authenticate] };
 
@@ -21,32 +53,17 @@ module.exports = async function reportsRoutes(fastify) {
         },
     }, async (request, reply) => {
         const { date, status, limit, offset } = request.query;
-        
-        // Build WHERE clause dynamically
-        const conditions = [];
-        const values = [];
-        let paramIndex = 1;
 
-        if (date) {
-            conditions.push(`t.ticket_date = $${paramIndex++}`);
-            values.push(date);
-        } else {
-            // Default to today if no date provided
-            conditions.push(`t.ticket_date = CURRENT_DATE`);
-        }
+        const { clause: whereClause, values: whereValues } = buildWhere(
+            date ? [`t.ticket_date = ?`, date] : [`t.ticket_date = CURRENT_DATE`],
+            status ? [`t.status = ?`, status] : null,
+        );
 
-        if (status) {
-            conditions.push(`t.status = $${paramIndex++}`);
-            values.push(status);
-        }
-
-        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-        // Add pagination values
-        values.push(limit);
-        const limitIndex = paramIndex++;
-        values.push(offset);
-        const offsetIndex = paramIndex++;
+        // Pagination params are separate from the WHERE values so the count
+        // query below can reuse whereValues as-is, with no slicing needed.
+        const listValues = [...whereValues, limit, offset];
+        const limitIndex = whereValues.length + 1;
+        const offsetIndex = whereValues.length + 2;
 
         // Query tickets
         const { rows } = await query(`
@@ -68,7 +85,7 @@ module.exports = async function reportsRoutes(fastify) {
             ${whereClause}
             ORDER BY t.created_at DESC
             LIMIT $${limitIndex} OFFSET $${offsetIndex}
-        `, values);
+        `, listValues);
 
         // Map statuses to readable ones
         const mapStatus = (db) => {
@@ -96,7 +113,7 @@ module.exports = async function reportsRoutes(fastify) {
             SELECT COUNT(*) AS total
             FROM clinicqueue.tickets t
             ${whereClause}
-        `, values.slice(0, paramIndex - 3)); // Pass only the WHERE values
+        `, whereValues);
 
         return reply.send({ 
             data: mapped, 
@@ -121,16 +138,14 @@ module.exports = async function reportsRoutes(fastify) {
         }
     }, async (request, reply) => {
         const { date } = request.query;
-        let dateCondition = "t.ticket_date = CURRENT_DATE";
-        const values = [];
 
-        if (date) {
-            values.push(date);
-            dateCondition = "t.ticket_date = $1";
-        }
+        const { clause: whereClause, values } = buildWhere(
+            date ? [`t.ticket_date = ?`, date] : [`t.ticket_date = CURRENT_DATE`],
+            [`t.called_at IS NOT NULL`],
+        );
 
         const { rows } = await query(`
-            SELECT 
+            SELECT
                 COALESCE(m.module_name, s.station_name, 'Desconocido') AS group_name,
                 m.module_name,
                 s.station_name,
@@ -141,8 +156,7 @@ module.exports = async function reportsRoutes(fastify) {
             FROM clinicqueue.tickets t
             LEFT JOIN clinicqueue.stations s ON t.station_id = s.station_id
             LEFT JOIN clinicqueue.modules m ON t.module_id = m.module_id
-            WHERE ${dateCondition}
-              AND t.called_at IS NOT NULL
+            ${whereClause}
             GROUP BY m.module_name, s.station_name
             ORDER BY avg_wait_min DESC NULLS LAST
         `, values);
@@ -164,20 +178,11 @@ module.exports = async function reportsRoutes(fastify) {
         }
     }, async (request, reply) => {
         const { start, end } = request.query;
-        let conditions = [];
-        const values = [];
-        let pIdx = 1;
 
-        if (start) {
-            conditions.push(`t.ticket_date >= $${pIdx++}`);
-            values.push(start);
-        }
-        if (end) {
-            conditions.push(`t.ticket_date <= $${pIdx++}`);
-            values.push(end);
-        }
-
-        const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+        const { clause: whereClause, values } = buildWhere(
+            start ? [`t.ticket_date >= ?`, start] : null,
+            end ? [`t.ticket_date <= ?`, end] : null,
+        );
 
         const { rows } = await query(`
             SELECT 
@@ -207,20 +212,16 @@ module.exports = async function reportsRoutes(fastify) {
         }
     }, async (request, reply) => {
         const { date, groupBy } = request.query;
-        
+
         const isModule = groupBy === 'module';
         const groupColumn = isModule ? 'm.module_name' : 's.station_name';
-        
-        let dateCondition = "t.ticket_date = CURRENT_DATE";
-        const values = [];
 
-        if (date) {
-            values.push(date);
-            dateCondition = "t.ticket_date = $1";
-        }
+        const { clause: whereClause, values } = buildWhere(
+            date ? [`t.ticket_date = ?`, date] : [`t.ticket_date = CURRENT_DATE`],
+        );
 
         const { rows } = await query(`
-            SELECT 
+            SELECT
                 COALESCE(${groupColumn}, 'Sin Asignar') AS group_name,
                 COUNT(t.ticket_id) AS total_issued,
                 SUM(CASE WHEN t.status IN ('FINALIZADO') THEN 1 ELSE 0 END) AS done_count,
@@ -229,7 +230,7 @@ module.exports = async function reportsRoutes(fastify) {
             FROM clinicqueue.tickets t
             LEFT JOIN clinicqueue.stations s ON t.station_id = s.station_id
             LEFT JOIN clinicqueue.modules m ON t.module_id = m.module_id
-            WHERE ${dateCondition}
+            ${whereClause}
             GROUP BY ${groupColumn}
             ORDER BY total_issued DESC
         `, values);

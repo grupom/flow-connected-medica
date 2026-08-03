@@ -21,12 +21,8 @@
     loading = true;
     try {
       const res = await api.public.post('/api/auth/login', { login: loginData, password });
-      
-      auth.setAuth({
-          user: res.user,
-          accessToken: res.accessToken,
-          refreshToken: res.refreshToken,
-      });
+
+      auth.setUser(res.user); // session cookies already set by the server
 
       // Optional: Check if the user is actually bound to a Kiosk by hitting the session endpoint
       try {

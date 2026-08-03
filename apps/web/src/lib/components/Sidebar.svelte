@@ -4,26 +4,27 @@
   import { auth } from '$lib/auth.js';
   import { api } from '$lib/api.js';
   import { toasts } from '$lib/stores.js';
+  import { adminT as t } from '$lib/i18n';
 
-  const topNavItems = [
-    { href: '/dashboard',         label: 'Dashboard',      icon: '📊', roles: null },
-    { href: '/front-desk',        label: 'Front Desk',     icon: '⚡', roles: ['ADMIN', 'DESK'] },
-    { href: '/station',           label: 'Station Ops',    icon: '🎫', roles: null },
-    { href: '/admin/boards',      label: 'Display Boards', icon: '📺', roles: ['ADMIN'] },
-    { href: '/admin/reports',     label: 'Reports',        icon: '📉', roles: ['ADMIN'] },
-    { href: '/admin/daily-close', label: 'Daily Close',    icon: '📅', roles: ['ADMIN', 'SUPERVISOR'] },
+  const topNavConfig = [
+    { href: '/dashboard',         key: 'nav.dashboard',      icon: '📊', roles: null },
+    { href: '/front-desk',        key: 'nav.front_desk',     icon: '⚡', roles: ['ADMIN', 'DESK'] },
+    { href: '/station',           key: 'nav.station_ops',    icon: '🎫', roles: null },
+    { href: '/admin/boards',      key: 'nav.display_boards', icon: '📺', roles: ['ADMIN'] },
+    { href: '/admin/reports',     key: 'nav.reports',        icon: '📉', roles: ['ADMIN'] },
+    { href: '/admin/daily-close', key: 'nav.daily_close',    icon: '📅', roles: ['ADMIN', 'SUPERVISOR'] },
   ];
 
   $: userRoles = $auth.user?.role_codes || [];
-  $: filteredTopNav = topNavItems.filter(item =>
-    !item.roles || item.roles.some(r => userRoles.includes(r))
-  );
+  $: filteredTopNav = topNavConfig
+    .filter(item => !item.roles || item.roles.some(r => userRoles.includes(r)))
+    .map(item => ({ ...item, label: $t(item.key) }));
   $: isAdmin = userRoles.includes('ADMIN');
 
   async function handleLogout() {
     try {
-      const rt = auth.getRefreshToken();
-      if (rt) await api.post('/api/auth/logout', { refreshToken: rt }).catch(() => {});
+      // No token to read/send — the refresh cookie rides along automatically.
+      await api.post('/api/auth/logout', {}).catch(() => {});
     } finally {
       auth.logout();
       goto('/login');
@@ -65,23 +66,27 @@
         href="/admin/settings"
         class="nav-item"
         class:active={settingsActive}
-        aria-label="Settings"
+        aria-label={$t('nav.settings')}
       >
         <span class="nav-icon">⚙️</span>
-        <span class="nav-label">Settings</span>
+        <span class="nav-label">{$t('nav.settings')}</span>
       </a>
     {/if}
   </nav>
 
   <!-- Footer -->
   <div class="sidebar-footer">
+    <a href="/docs" target="_blank" rel="noopener" class="nav-item">
+      <span class="nav-icon">📖</span>
+      <span class="nav-label">{$t('nav.documentation')}</span>
+    </a>
     <a href="/profile" class="nav-item" class:active={currentPath === '/profile'}>
       <span class="nav-icon">👤</span>
-      <span class="nav-label">My Profile</span>
+      <span class="nav-label">{$t('nav.my_profile')}</span>
     </a>
     <button class="nav-item logout-btn" on:click={handleLogout}>
       <span class="nav-icon">🚪</span>
-      <span class="nav-label">Logout</span>
+      <span class="nav-label">{$t('nav.logout')}</span>
     </button>
   </div>
 </aside>

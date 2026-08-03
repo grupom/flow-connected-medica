@@ -13,7 +13,7 @@
   let loading = true;
   let issuing = null;
   let lastTicket = null;
-  let lastPlan = null; // { visit_plan_id, first_ticket, chain } — set after creating a multi-area plan
+  let lastPlan = null; // { visit_plan_id, tickets } — set after creating a multi-area plan
   let pollInterval;
 
   // Multi-queue visit plan state
@@ -111,14 +111,6 @@
     else planSelectedPrefixes = planSelectedPrefixes.filter(p => p !== prefix);
   }
 
-  function movePlanStep(idx, dir) {
-    const newIdx = idx + dir;
-    if (newIdx < 0 || newIdx >= planSelectedPrefixes.length) return;
-    const copy = [...planSelectedPrefixes];
-    [copy[idx], copy[newIdx]] = [copy[newIdx], copy[idx]];
-    planSelectedPrefixes = copy;
-  }
-
   function queueName(prefix) {
     return allQueues.find(q => q.prefix === prefix)?.service_name || prefix;
   }
@@ -136,24 +128,25 @@
       });
       const plan = res.data || res;
       lastPlan = plan;
+      lastTicket = null;
       showPlanModal = false;
 
-      lastTicket = {
-        code: plan.first_ticket.code,
-        serviceName: plan.first_ticket.service_name,
-        timestamp: new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-      };
-      toasts.success(`Plan de visita creado. Turno actual: ${plan.first_ticket.code}`);
+      toasts.success(`Plan de visita creado — ${plan.tickets.length} turnos emitidos`);
 
-      try {
-        await printTicket({
-          code: plan.first_ticket.code,
-          prefix: plan.first_ticket.prefix,
-          service_name: plan.first_ticket.service_name,
-          tck_number: plan.first_ticket.tck_number,
-        });
-      } catch (printErr) {
-        toasts.error(`Turno emitido pero falló al imprimir: ${printErr.message}`);
+      // All areas were paid for up front and the patient may visit them in
+      // any order, so every ticket is printed now (not one-by-one as areas
+      // are visited).
+      for (const ticket of plan.tickets) {
+        try {
+          await printTicket({
+            code: ticket.code,
+            prefix: ticket.prefix,
+            service_name: ticket.service_name,
+            tck_number: ticket.tck_number,
+          });
+        } catch (printErr) {
+          toasts.error(`Turno ${ticket.code} (${ticket.service_name}) emitido pero falló al imprimir: ${printErr.message}`);
+        }
       }
 
       await loadMetrics();
@@ -225,7 +218,7 @@
         <div class="ticket-modal" in:scale={{ duration: 300, start: 0.9 }}>
           <div class="modal-header">
              <span class="badge-success">EMITIDO</span>
-             <button class="close-btn" on:click={() => { lastTicket = null; lastPlan = null; }}>✕</button>
+             <button class="close-btn" on:click={() => { lastTicket = null; }}>✕</button>
           </div>
 
           <div class="ticket-body">
@@ -235,15 +228,38 @@
               <span class="svc-name">{lastTicket.serviceName}</span>
               <span class="timestamp">{lastTicket.timestamp}</span>
             </div>
-            {#if lastPlan}
-              <p class="plan-summary-note">
-                Después: {lastPlan.chain.slice(1).map(s => s.service_name).join(' → ')}
-              </p>
-            {/if}
           </div>
 
           <div class="modal-actions">
-            <button class="btn btn-primary btn-block" on:click={() => { lastTicket = null; lastPlan = null; }}>LISTO</button>
+            <button class="btn btn-primary btn-block" on:click={() => { lastTicket = null; }}>LISTO</button>
+          </div>
+        </div>
+      </div>
+    {:else if lastPlan}
+      <div class="last-ticket-overlay" transition:fade>
+        <div class="ticket-modal" in:scale={{ duration: 300, start: 0.9 }}>
+          <div class="modal-header">
+             <span class="badge-success">EMITIDO</span>
+             <button class="close-btn" on:click={() => { lastPlan = null; }}>✕</button>
+          </div>
+
+          <div class="ticket-body">
+            <span class="ticket-label">TURNOS EMITIDOS</span>
+            <p class="plan-summary-note">
+              Puede visitar cualquiera de estas áreas, en cualquier orden:
+            </p>
+            <div class="plan-tickets-list">
+              {#each lastPlan.tickets as ticket}
+                <div class="plan-ticket-row">
+                  <span class="plan-ticket-code">{ticket.code}</span>
+                  <span class="plan-ticket-name">{ticket.service_name}</span>
+                </div>
+              {/each}
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn btn-primary btn-block" on:click={() => { lastPlan = null; }}>LISTO</button>
           </div>
         </div>
       </div>
@@ -251,8 +267,8 @@
 
     <Modal bind:open={showPlanModal} title="Plan de visita — múltiples áreas" size="md" on:close={() => showPlanModal = false}>
       <p class="text-sm muted mb-16">
-        Seleccione las áreas y su orden. El primer turno se emite ahora; los demás se
-        imprimen automáticamente al finalizar cada etapa.
+        Seleccione las áreas que el paciente pagó en esta visita. Se emite un turno para
+        cada una de inmediato — el paciente puede visitarlas en cualquier orden.
       </p>
 
       <div class="plan-checklist">
@@ -267,28 +283,15 @@
       </div>
 
       {#if planSelectedPrefixes.length > 0}
-        <div class="plan-order-list">
-          <strong class="text-sm">Orden del plan:</strong>
-          {#each planSelectedPrefixes as prefix, idx}
-            <div class="plan-order-row">
-              <span>{idx + 1}. {queueName(prefix)}</span>
-              <button type="button" class="btn btn-ghost btn-sm" on:click={() => movePlanStep(idx, -1)} disabled={idx === 0}>↑</button>
-              <button type="button" class="btn btn-ghost btn-sm" on:click={() => movePlanStep(idx, 1)} disabled={idx === planSelectedPrefixes.length - 1}>↓</button>
-            </div>
-          {/each}
-          <p class="plan-preview text-sm">
-            Primero: <strong>{queueName(planSelectedPrefixes[0])}</strong>
-            {#if planSelectedPrefixes.length > 1}
-              , luego: <strong>{planSelectedPrefixes.slice(1).map(queueName).join(' → ')}</strong>
-            {/if}
-          </p>
-        </div>
+        <p class="plan-preview text-sm">
+          Áreas seleccionadas: <strong>{planSelectedPrefixes.map(queueName).join(', ')}</strong>
+        </p>
       {/if}
 
       <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
         <button type="button" class="btn btn-ghost" on:click={() => showPlanModal = false}>Cancelar</button>
         <button type="button" class="btn btn-primary" disabled={planSelectedPrefixes.length < 2 || submittingPlan} on:click={submitVisitPlan}>
-          {submittingPlan ? 'Creando…' : 'Crear plan y emitir primer turno'}
+          {submittingPlan ? 'Creando…' : `Emitir ${planSelectedPrefixes.length || ''} turnos`}
         </button>
       </div>
     </Modal>
@@ -597,28 +600,40 @@
     cursor: pointer;
     font-size: 0.9rem;
   }
-  .plan-order-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 12px;
-    background: #f8fafc;
-    border-radius: var(--radius-sm);
-  }
-  .plan-order-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .plan-order-row span { flex: 1; font-size: 0.9rem; }
   .plan-preview {
     margin: 8px 0 0;
     color: var(--text-muted);
   }
   .plan-summary-note {
-    margin-top: 12px;
+    margin-top: 4px;
     font-size: 0.95rem;
     color: var(--text-muted);
     text-align: center;
+  }
+  .plan-tickets-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    margin-top: 16px;
+  }
+  .plan-ticket-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    background: #f8fafc;
+    border-radius: var(--radius-sm);
+  }
+  .plan-ticket-code {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--primary-dark);
+  }
+  .plan-ticket-name {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    font-weight: 600;
   }
 </style>

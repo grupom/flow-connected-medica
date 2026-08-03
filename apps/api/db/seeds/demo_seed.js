@@ -15,18 +15,20 @@ async function seed() {
         console.log('🌱 Seeding demo data...\n');
 
         // ── Roles ─────────────────────────────────────────────────────────────
+        // Normally already seeded by docker/init/01a-reference-data.sql — repeated
+        // here (same fixed IDs, ON CONFLICT DO NOTHING) so this script is also
+        // self-contained if run against a database where that hasn't happened.
         await client.query(`
-      INSERT INTO clinicqueue.roles (role_code, role_name, description, is_active)
+      INSERT INTO clinicqueue.roles (role_id, role_code, role_name, description, is_active)
       VALUES
-        ('ADMIN',    'Administrator',      'Full system access',     true),
-        ('OPERATOR', 'Queue Operator',     'Station operations',     true),
-        ('DISPLAY',  'Display Board Only', 'View-only board access', true)
-      ON CONFLICT (role_code) DO NOTHING
+        (1, 'ADMIN',      'Administrador', 'Configura el sistema, catálogos y reportes', true),
+        (2, 'DESK',       'Front Desk',    'Crea turnos desde recepción',                true)
+      ON CONFLICT (role_id) DO NOTHING
     `);
         console.log('✅ Roles inserted');
 
         // ── Demo Users ────────────────────────────────────────────────────────
-        const adminHash = await bcrypt.hash('admin1234', 12);
+        const adminHash = await bcrypt.hash('admin123!', 12);
         const opHash = await bcrypt.hash('operator1234', 12);
 
         const { rows: adminRows } = await client.query(`
@@ -47,7 +49,7 @@ async function seed() {
 
         // ── Assign roles ──────────────────────────────────────────────────────
         const { rows: roleRows } = await client.query(
-            `SELECT role_id, role_code FROM clinicqueue.roles WHERE role_code IN ('ADMIN','OPERATOR')`
+            `SELECT role_id, role_code FROM clinicqueue.roles WHERE role_code IN ('ADMIN','DESK')`
         );
         const roleMap = Object.fromEntries(roleRows.map((r) => [r.role_code, r.role_id]));
 
@@ -61,9 +63,17 @@ async function seed() {
             await client.query(`
         INSERT INTO clinicqueue.user_roles (user_id, role_id)
         VALUES ($1, $2) ON CONFLICT DO NOTHING
-      `, [opRows[0].user_id, roleMap.OPERATOR]);
+      `, [opRows[0].user_id, roleMap.DESK]);
         }
         console.log('✅ Role assignments done');
+
+        // ── Demo Queue (module.prefix / station.prefix reference this) ──────────
+        await client.query(`
+      INSERT INTO clinicqueue.queue_settings (prefix, mode, service_name, icon)
+      VALUES ('C', 'DAILY_RESET', 'Consultorio', '🩺')
+      ON CONFLICT (prefix) DO NOTHING
+    `);
+        console.log('✅ Queue setting inserted');
 
         // ── Demo Module ───────────────────────────────────────────────────────
         const { rows: modRows } = await client.query(`
@@ -109,7 +119,7 @@ async function seed() {
 
         await client.query('COMMIT');
         console.log('\n🎉 Seed complete!\n');
-        console.log('  Admin login:    admin / admin1234');
+        console.log('  Admin login:    admin / admin123!');
         console.log('  Operator login: operator1 / operator1234\n');
     } catch (err) {
         await client.query('ROLLBACK');

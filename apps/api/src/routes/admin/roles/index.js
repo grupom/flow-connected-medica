@@ -3,10 +3,8 @@
 const { query } = require('../../../db/pool');
 
 module.exports = async function rolesRoutes(fastify) {
-    const auth = { preHandler: [fastify.authenticate] };
-
     // GET /api/admin/roles
-    fastify.get('/', auth, async (request, reply) => {
+    fastify.get('/', fastify.adminOnly, async (request, reply) => {
         const { rows } = await query(
             `SELECT role_id, role_code, role_name, description, is_active, created_at, updated_at
        FROM clinicqueue.roles ORDER BY role_name`,
@@ -17,7 +15,7 @@ module.exports = async function rolesRoutes(fastify) {
 
     // POST /api/admin/roles
     fastify.post('/', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             body: {
                 type: 'object',
@@ -42,7 +40,7 @@ module.exports = async function rolesRoutes(fastify) {
 
     // PUT /api/admin/roles/:id
     fastify.put('/:id', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
             body: {
@@ -71,7 +69,7 @@ module.exports = async function rolesRoutes(fastify) {
 
     // PATCH /api/admin/roles/:id/status
     fastify.patch('/:id/status', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
             body: {

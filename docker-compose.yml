@@ -12,8 +12,10 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # Init scripts run only on first start (when the data volume is empty).
-      # 01: base schema | 02: refresh_tokens | 03: post-DDL migrations (columns, functions, etc.) | 04: ad campaigns | 05: visit plans
+      # 01: base schema (schema-only, no data) | 01a: fixed reference data (roles, user_statuses)
+      # | 02: refresh_tokens | 03: post-DDL migrations (columns, functions, etc.) | 04: ad campaigns | 05: visit plans
       - ./clinicqueue-DDL.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./docker/init/01a-reference-data.sql:/docker-entrypoint-initdb.d/01a-reference-data.sql:ro
       - ./apps/api/db/migrations/001_refresh_tokens.sql:/docker-entrypoint-initdb.d/02-refresh-tokens.sql:ro
       - ./docker/init/03-migrations.sql:/docker-entrypoint-initdb.d/03-migrations.sql:ro
       - ./docker/init/04-ad-campaigns.sql:/docker-entrypoint-initdb.d/04-ad-campaigns.sql:ro
@@ -44,6 +46,8 @@ services:
       NODE_ENV: production
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       CORS_SUBNETS: ${CORS_SUBNETS:-}
+      CORS_TRUST_LAN: ${CORS_TRUST_LAN:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       # Persist TTS audio cache across container restarts
@@ -66,7 +70,10 @@ services:
     container_name: clinicqueue_pgadmin
     restart: unless-stopped
     ports:
-      - "${PGADMIN_PORT:-5050}:80"
+      # Loopback-only: pgAdmin has full write access to the database and this
+      # runs on the clinic's shared LAN — it should only be reachable from the
+      # host machine itself (e.g. via SSH tunnel), never directly from the network.
+      - "127.0.0.1:${PGADMIN_PORT:-5050}:80"
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}

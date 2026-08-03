@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { toasts } from '$lib/stores.js';
+  import { adminT as t } from '$lib/i18n';
   import Modal from '$lib/components/Modal.svelte';
 
   let settings = [];
@@ -72,15 +73,15 @@
 
       if (isEditing) {
         await api.put(`/api/admin/queue-settings/${form.prefix}`, payload);
-        toasts.success('Settings updated');
+        toasts.success($t('admin.queue_settings.toast_updated'));
       } else {
         await api.post('/api/admin/queue-settings', payload);
-        toasts.success('Settings created');
+        toasts.success($t('admin.queue_settings.toast_created'));
       }
       showModal = false;
       await loadSettings();
     } catch (e) {
-      toasts.error(e.message || 'Save failed');
+      toasts.error(e.message || $t('admin.queue_settings.error_save'));
     } finally {
       submitting = false;
     }
@@ -97,30 +98,30 @@
       const res = await api.get('/api/admin/queue-settings?include_archived=true');
       settings = res?.data ?? res ?? [];
     } catch (e) {
-      toasts.error(e.message || 'Failed to load queue settings');
+      toasts.error(e.message || $t('admin.queue_settings.error_load'));
     } finally {
       loading = false;
     }
   }
 
   async function archiveSetting(prefix) {
-    if (!confirm(`¿Archivar el prefijo '${prefix}'? Los tickets existentes no se verán afectados, pero no se podrán crear nuevos.`)) return;
+    if (!confirm($t('admin.queue_settings.confirm_archive', { prefix }))) return;
     try {
       await api.patch(`/api/admin/queue-settings/${prefix}/archive`, {});
-      toasts.success(`Prefijo '${prefix}' archivado.`);
+      toasts.success($t('admin.queue_settings.toast_archived', { prefix }));
       await loadSettings();
     } catch (e) {
-      toasts.error(e.message || 'Error al archivar');
+      toasts.error(e.message || $t('admin.queue_settings.error_archive'));
     }
   }
 
   async function restoreSetting(prefix) {
     try {
       await api.patch(`/api/admin/queue-settings/${prefix}/restore`, {});
-      toasts.success(`Prefijo '${prefix}' restaurado.`);
+      toasts.success($t('admin.queue_settings.toast_restored', { prefix }));
       await loadSettings();
     } catch (e) {
-      toasts.error(e.message || 'Error al restaurar');
+      toasts.error(e.message || $t('admin.queue_settings.error_restore'));
     }
   }
 
@@ -128,28 +129,28 @@
 </script>
 
 <svelte:head>
-  <title>Queue Settings — Admin</title>
+  <title>{$t('admin.queue_settings.title')} — Admin</title>
 </svelte:head>
 
-<a href="/admin/settings" class="back-link">← Settings</a>
+<a href="/admin/settings" class="back-link">← {$t('nav.settings')}</a>
 
 <div class="page-header">
   <div>
-    <h2 class="page-title">Module Prefixes</h2>
-    <p class="page-subtitle">Configure ticket generation rules per service prefix</p>
+    <h2 class="page-title">{$t('admin.queue_settings.title')}</h2>
+    <p class="page-subtitle">{$t('admin.queue_settings.subtitle')}</p>
   </div>
-  <button class="btn btn-primary" on:click={openCreate}>＋ Add Prefix Config</button>
+  <button class="btn btn-primary" on:click={openCreate}>{$t('admin.queue_settings.add_prefix')}</button>
 </div>
 
 {#if loading}
-  <div class="empty-state"><div class="spinner" /> Loading…</div>
+  <div class="empty-state"><div class="spinner" /> {$t('admin.queue_settings.loading')}</div>
 {:else}
 
   <!-- Active settings -->
   {#if activeSettings.length === 0}
     <div class="empty-state">
       <span class="icon">⚙️</span>
-      <p>No queue settings configured yet.</p>
+      <p>{$t('admin.queue_settings.empty')}</p>
     </div>
   {:else}
     <div class="card">
@@ -157,15 +158,15 @@
         <table>
           <thead>
             <tr>
-              <th>Prefix</th>
-              <th>Service Name</th>
-              <th>Icon</th>
-              <th>Mode</th>
-              <th>Range</th>
-              <th>Max Active</th>
-              <th>Walk-ins</th>
-              <th>Priority de</th>
-              <th>Actions</th>
+              <th>{$t('admin.queue_settings.th_prefix')}</th>
+              <th>{$t('admin.queue_settings.th_service_name')}</th>
+              <th>{$t('admin.queue_settings.th_icon')}</th>
+              <th>{$t('admin.queue_settings.th_mode')}</th>
+              <th>{$t('admin.queue_settings.th_range')}</th>
+              <th>{$t('admin.queue_settings.th_max_active')}</th>
+              <th>{$t('admin.queue_settings.th_walkins')}</th>
+              <th>{$t('admin.queue_settings.th_priority_of')}</th>
+              <th>{$t('admin.queue_settings.th_actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -189,10 +190,10 @@
                   </span>
                 </td>
                 <td class="muted">{s.min_number} — {s.max_number}</td>
-                <td class="muted">{s.max_active ?? 'Unlimited'}</td>
+                <td class="muted">{s.max_active ?? $t('admin.queue_settings.unlimited')}</td>
                 <td>
                   <span class="badge {s.allow_walkins ? 'badge-success' : 'badge-gray'}">
-                    {s.allow_walkins ? 'Yes' : 'No'}
+                    {s.allow_walkins ? $t('admin.queue_settings.yes') : $t('admin.queue_settings.no')}
                   </span>
                 </td>
                 <td>
@@ -204,8 +205,8 @@
                 </td>
                 <td>
                   <div class="row-actions">
-                    <button class="btn btn-ghost btn-sm" on:click={() => openEdit(s)}>Edit</button>
-                    <button class="btn btn-warning btn-sm" on:click={() => archiveSetting(s.prefix)}>Archive</button>
+                    <button class="btn btn-ghost btn-sm" on:click={() => openEdit(s)}>{$t('admin.queue_settings.edit')}</button>
+                    <button class="btn btn-warning btn-sm" on:click={() => archiveSetting(s.prefix)}>{$t('admin.queue_settings.archive')}</button>
                   </div>
                 </td>
               </tr>
@@ -220,7 +221,7 @@
   {#if archivedSettings.length > 0}
     <div class="archived-header">
       <button class="btn btn-ghost btn-sm" on:click={() => showArchived = !showArchived}>
-        {showArchived ? '▲' : '▼'} Archivados ({archivedSettings.length})
+        {showArchived ? '▲' : '▼'} {$t('admin.queue_settings.archived_toggle', { count: archivedSettings.length })}
       </button>
     </div>
 
@@ -230,12 +231,12 @@
           <table>
             <thead>
               <tr>
-                <th>Prefix</th>
-                <th>Service Name</th>
-                <th>Icon</th>
-                <th>Mode</th>
-                <th>Range</th>
-                <th>Actions</th>
+                <th>{$t('admin.queue_settings.th_prefix')}</th>
+                <th>{$t('admin.queue_settings.th_service_name')}</th>
+                <th>{$t('admin.queue_settings.th_icon')}</th>
+                <th>{$t('admin.queue_settings.th_mode')}</th>
+                <th>{$t('admin.queue_settings.th_range')}</th>
+                <th>{$t('admin.queue_settings.th_actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -247,7 +248,7 @@
                   <td><span class="badge badge-gray">{s.mode}</span></td>
                   <td class="muted">{s.min_number} — {s.max_number}</td>
                   <td>
-                    <button class="btn btn-ghost btn-sm" on:click={() => restoreSetting(s.prefix)}>Restaurar</button>
+                    <button class="btn btn-ghost btn-sm" on:click={() => restoreSetting(s.prefix)}>{$t('admin.queue_settings.restore')}</button>
                   </td>
                 </tr>
               {/each}
@@ -260,11 +261,11 @@
 
 {/if}
 
-<Modal bind:open={showModal} title={isEditing ? 'Edit Queue Setting' : 'Add Queue Setting'} on:close={() => showModal = false}>
+<Modal bind:open={showModal} title={isEditing ? $t('admin.queue_settings.modal_title_edit') : $t('admin.queue_settings.modal_title_create')} on:close={() => showModal = false}>
   <form on:submit|preventDefault={handleSubmit} class="modal-form">
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Prefix <em>(1-2 chars)</em></label>
+        <label class="form-label">{$t('admin.queue_settings.label_prefix')} <em>{$t('admin.queue_settings.label_prefix_hint')}</em></label>
         <input
           class="input"
           bind:value={form.prefix}
@@ -277,79 +278,78 @@
         />
       </div>
       <div class="form-group">
-        <label class="form-label">Service Name</label>
+        <label class="form-label">{$t('admin.queue_settings.label_service_name')}</label>
         <input class="input" bind:value={form.service_name} placeholder="e.g. Consultorio" required />
       </div>
     </div>
 
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Icon (Emoji)</label>
+        <label class="form-label">{$t('admin.queue_settings.label_icon')}</label>
         <input class="input" bind:value={form.icon} placeholder="🩺" />
       </div>
       <div class="form-group">
-        <label class="form-label">Reset Mode</label>
+        <label class="form-label">{$t('admin.queue_settings.label_mode')}</label>
         <select class="input" bind:value={form.mode}>
-          <option value="DAILY_RESET">Daily Reset (1...99)</option>
-          <option value="GLOBAL">Global (Continuous)</option>
+          <option value="DAILY_RESET">{$t('admin.queue_settings.mode_daily')}</option>
+          <option value="GLOBAL">{$t('admin.queue_settings.mode_global')}</option>
         </select>
       </div>
     </div>
 
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Min Number</label>
+        <label class="form-label">{$t('admin.queue_settings.label_min_number')}</label>
         <input class="input" type="number" min="1" bind:value={form.min_number} required />
       </div>
       <div class="form-group">
-        <label class="form-label">Max Number <em>(máx 99)</em></label>
+        <label class="form-label">{$t('admin.queue_settings.label_max_number')} <em>{$t('admin.queue_settings.label_max_number_hint')}</em></label>
         <input class="input" type="number" min="1" max="99" bind:value={form.max_number} required />
       </div>
     </div>
 
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Max Active Tickets (Optional)</label>
-        <input class="input" type="number" min="1" bind:value={form.max_active} placeholder="No limit" />
-        <span class="text-xs muted block mt-4">Max tickets waiting/serving at once.</span>
+        <label class="form-label">{$t('admin.queue_settings.label_max_active')}</label>
+        <input class="input" type="number" min="1" bind:value={form.max_active} placeholder={$t('admin.queue_settings.no_limit')} />
+        <span class="text-xs muted block mt-4">{$t('admin.queue_settings.max_active_hint')}</span>
       </div>
       <div class="form-group" style="display:flex; flex-direction:column; justify-content:center;">
         <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; {form.is_priority_for ? 'opacity:0.4;pointer-events:none' : ''}">
           <input type="checkbox" bind:checked={form.allow_walkins} disabled={!!form.is_priority_for} />
-          Allow Kiosk Walk-ins
+          {$t('admin.queue_settings.allow_walkins')}
         </label>
         <span class="text-xs muted mt-4">
-          {form.is_priority_for ? 'Deshabilitado — prefijos priority solo se emiten por Recepción.' : 'If unchecked, requires check-in/appointments.'}
+          {form.is_priority_for ? $t('admin.queue_settings.walkins_disabled_hint') : $t('admin.queue_settings.walkins_enabled_hint')}
         </span>
       </div>
     </div>
 
     <!-- Priority queue config -->
     <div class="form-group priority-section">
-      <label class="form-label">⚡ Es prefijo de Prioridad para</label>
+      <label class="form-label">{$t('admin.queue_settings.priority_for')}</label>
       <select class="input" bind:value={form.is_priority_for}
               on:change={() => { if (form.is_priority_for) form.allow_walkins = false; }}>
-        <option value={null}>— Ninguno (prefijo regular) —</option>
+        <option value={null}>{$t('admin.queue_settings.priority_none')}</option>
         {#each priorityParentOptions.filter(p => p.prefix !== form.prefix) as parent}
           <option value={parent.prefix}>{parent.prefix} — {parent.service_name}</option>
         {/each}
       </select>
       {#if form.is_priority_for}
         <span class="text-xs priority-hint mt-4 block">
-          ⚡ Tickets de este prefijo se llaman antes que los de <strong>{form.is_priority_for}</strong>.
-          Solo se generan desde Recepción.
+          {$t('admin.queue_settings.priority_hint_active', { parent: form.is_priority_for })}
         </span>
       {:else}
         <span class="text-xs muted mt-4 block">
-          Selecciona un prefijo padre si este es un carril de prioridad (embarazadas, adultos mayores, etc.)
+          {$t('admin.queue_settings.priority_hint_inactive')}
         </span>
       {/if}
     </div>
 
     <div class="modal-footer">
-      <button type="button" class="btn btn-ghost" on:click={() => showModal = false}>Cancel</button>
+      <button type="button" class="btn btn-ghost" on:click={() => showModal = false}>{$t('admin.queue_settings.cancel')}</button>
       <button type="submit" class="btn btn-primary" disabled={submitting}>
-        {submitting ? 'Saving…' : isEditing ? 'Update Settings' : 'Create Settings'}
+        {submitting ? $t('admin.queue_settings.saving') : isEditing ? $t('admin.queue_settings.update') : $t('admin.queue_settings.create')}
       </button>
     </div>
   </form>

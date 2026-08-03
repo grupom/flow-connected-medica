@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { systemSettings } from '$lib/stores.js';
-  import { locale } from '$lib/i18n';
+  import { locale, adminLocale } from '$lib/i18n';
   import { toasts } from '$lib/stores.js';
 
   let loading = true;
@@ -26,7 +26,10 @@
     try {
       const res = await api.patch('/api/admin/settings', { multi_language: multiLanguage });
       systemSettings.set(res.data);
-      if (!multiLanguage) locale.set('es');
+      if (!multiLanguage) {
+        locale.set('es');
+        adminLocale.set('es');
+      }
       toasts.success('Configuración guardada.');
     } catch {
       toasts.error('Error al guardar la configuración.');
@@ -68,8 +71,8 @@
     <div class="lang-option" class:lang-option--active={multiLanguage} on:click={() => multiLanguage = true} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && (multiLanguage = true)}>
       <div class="lang-flag">🌐</div>
       <div class="lang-info">
-        <span class="lang-name">Multi-idioma — Español + Kreyòl Ayisyen</span>
-        <span class="lang-hint">Activa el selector de idioma en la pantalla de login, kiosco y pantallas de turno.</span>
+        <span class="lang-name">Multi-idioma — Español, Kreyòl Ayisyen e Inglés</span>
+        <span class="lang-hint">Activa el selector de idioma (incluyendo 🇺🇸 English) en la pantalla de login, kiosco y pantallas de turno.</span>
       </div>
       <div class="radio" class:radio--on={multiLanguage}></div>
     </div>

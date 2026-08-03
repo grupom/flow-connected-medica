@@ -7,7 +7,8 @@
     "scripts": {
         "dev": "nodemon src/server.js",
         "start": "node src/server.js",
-        "seed": "node db/seeds/demo_seed.js"
+        "seed": "node db/seeds/demo_seed.js",
+        "migrate": "node scripts/apply-migrations.js"
     },
     "dependencies": {
         "@fastify/cookie": "^11.0.2",

@@ -3,11 +3,9 @@
 const { query } = require('../../../db/pool');
 
 module.exports = async function stationUsersRoutes(fastify) {
-    const auth = { preHandler: [fastify.authenticate] };
-
     // GET /api/admin/stations/:stationId/users
     fastify.get('/:stationId/users', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: { params: { type: 'object', properties: { stationId: { type: 'integer' } } } },
     }, async (request, reply) => {
         const { stationId } = request.params;
@@ -24,7 +22,7 @@ module.exports = async function stationUsersRoutes(fastify) {
 
     // POST /api/admin/stations/:stationId/users
     fastify.post('/:stationId/users', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { stationId: { type: 'integer' } } },
             body: {
@@ -51,7 +49,7 @@ module.exports = async function stationUsersRoutes(fastify) {
 
     // PATCH /api/admin/stations/:stationId/users/:userId
     fastify.patch('/:stationId/users/:userId', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: {
                 type: 'object',
@@ -80,7 +78,7 @@ module.exports = async function stationUsersRoutes(fastify) {
 
     // DELETE /api/admin/stations/:stationId/users/:userId
     fastify.delete('/:stationId/users/:userId', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: {
                 type: 'object',

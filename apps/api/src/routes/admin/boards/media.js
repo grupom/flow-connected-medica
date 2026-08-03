@@ -26,22 +26,10 @@ async function getBoard(id) {
 }
 
 module.exports = async function boardMediaRoutes(fastify) {
-    const adminOnly = {
-        preHandler: [
-            fastify.authenticate,
-            async (request, reply) => {
-                const roles = request.user?.role_codes ?? [];
-                if (!roles.includes('ADMIN')) {
-                    return reply.code(403).send({ error: 'Forbidden', message: 'Se requiere rol ADMIN' });
-                }
-            },
-        ],
-    };
-
     // POST /api/admin/boards/:id/media/video
     // Replaces the board's active ad campaign with a single mp4 video.
     fastify.post('/:id/media/video', {
-        ...adminOnly,
+        ...fastify.adminOnly,
         schema: { params: { type: 'object', properties: { id: { type: 'integer' } } } },
     }, async (request, reply) => {
         const { id } = request.params;
@@ -90,7 +78,7 @@ module.exports = async function boardMediaRoutes(fastify) {
     // Replaces the board's active ad campaign with a sequence of images.
     // Non-file field "durations" (optional): JSON array of per-image seconds, aligned by upload order.
     fastify.post('/:id/media/images', {
-        ...adminOnly,
+        ...fastify.adminOnly,
         schema: { params: { type: 'object', properties: { id: { type: 'integer' } } } },
     }, async (request, reply) => {
         const { id } = request.params;
@@ -148,7 +136,7 @@ module.exports = async function boardMediaRoutes(fastify) {
     // PATCH /api/admin/boards/:id/media/images/order
     // Reorders/re-times an existing image sequence without re-uploading files.
     fastify.patch('/:id/media/images/order', {
-        ...adminOnly,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
             body: {
@@ -193,7 +181,7 @@ module.exports = async function boardMediaRoutes(fastify) {
 
     // PATCH /api/admin/boards/:id/media/settings
     fastify.patch('/:id/media/settings', {
-        ...adminOnly,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
             body: {
@@ -221,7 +209,7 @@ module.exports = async function boardMediaRoutes(fastify) {
 
     // DELETE /api/admin/boards/:id/media
     fastify.delete('/:id/media', {
-        ...adminOnly,
+        ...fastify.adminOnly,
         schema: { params: { type: 'object', properties: { id: { type: 'integer' } } } },
     }, async (request, reply) => {
         const { id } = request.params;

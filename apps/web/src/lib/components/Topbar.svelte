@@ -1,6 +1,7 @@
 <script>
   export let title = '';
   import { auth } from '$lib/auth.js';
+  import { adminLocale } from '$lib/i18n';
   import { systemSettings } from '$lib/stores.js';
   import LanguageSwitcher from '$lib/components/LanguageSwitcher.svelte';
 
@@ -17,7 +18,7 @@
   </div>
   <div class="topbar-right">
     {#if $systemSettings.multi_language}
-      <LanguageSwitcher />
+      <LanguageSwitcher localeStore={adminLocale} />
     {/if}
     {#if user}
       <div class="user-chip">

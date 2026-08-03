@@ -21,9 +21,6 @@ apps/web/.env
 .DS_Store
 Thumbs.db
 
-migrate_*.js
-verify-phase2.js
-
 docker
 Makefile
 *.md

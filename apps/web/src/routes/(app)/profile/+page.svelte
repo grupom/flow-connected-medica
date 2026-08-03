@@ -48,10 +48,7 @@
       toasts.success('Perfil actualizado ✓');
 
       // Update auth store display_name
-      auth.setAuth({
-        user: { ...$auth.user, display_name: updated.display_name, email: updated.email, phone: updated.phone },
-        accessToken: $auth.accessToken,
-      });
+      auth.setUser({ ...$auth.user, display_name: updated.display_name, email: updated.email, phone: updated.phone });
     } catch (e) {
       toasts.error(e.message || 'Error al guardar');
     } finally {

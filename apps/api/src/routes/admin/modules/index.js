@@ -3,9 +3,7 @@
 const { query } = require('../../../db/pool');
 
 module.exports = async function modulesRoutes(fastify) {
-    const auth = { preHandler: [fastify.authenticate] };
-
-    fastify.get('/', auth, async (request, reply) => {
+    fastify.get('/', fastify.adminOnly, async (request, reply) => {
         const { rows } = await query(
             `SELECT * FROM clinicqueue.modules ORDER BY prefix, display_order, module_name`,
             []
@@ -14,7 +12,7 @@ module.exports = async function modulesRoutes(fastify) {
     });
 
     fastify.post('/', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             body: {
                 type: 'object',
@@ -53,7 +51,7 @@ module.exports = async function modulesRoutes(fastify) {
     });
 
     fastify.put('/:id', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
             body: {
@@ -83,7 +81,7 @@ module.exports = async function modulesRoutes(fastify) {
     });
 
     fastify.patch('/:id/status', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
             body: { type: 'object', required: ['is_active'], properties: { is_active: { type: 'boolean' } } },

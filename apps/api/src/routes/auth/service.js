@@ -9,6 +9,19 @@ const KIOSK_ACCESS_EXPIRY = '24h';
 const KIOSK_REFRESH_EXPIRY = '100y'; // "forever" without a schema change — see expires_at comparison below
 
 /**
+ * Parses the small set of expiry-string formats actually used in this
+ * codebase ("15m", "24h", "7d", "100y") into milliseconds, so cookie
+ * `expires` dates can track the same durations passed to jwt sign().
+ */
+function parseExpiryToMs(expiry) {
+    const match = /^(\d+)([smhdy])$/.exec(expiry);
+    if (!match) throw new Error(`Unsupported expiry format: ${expiry}`);
+    const value = Number(match[1]);
+    const unitMs = { s: 1000, m: 60000, h: 3600000, d: 86400000, y: 31536000000 }[match[2]];
+    return value * unitMs;
+}
+
+/**
  * Lookup user by username or email from the login view.
  */
 async function findUserForLogin(login) {
@@ -127,6 +140,7 @@ async function computeSessionDurations(userId) {
     if (kiosk && kioskNoExpiry) {
         return {
             accessExpiresIn: KIOSK_ACCESS_EXPIRY,
+            accessExpiresAt: new Date(Date.now() + parseExpiryToMs(KIOSK_ACCESS_EXPIRY)),
             refreshExpiresIn: KIOSK_REFRESH_EXPIRY,
             refreshExpiresAt: new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000),
         };
@@ -134,6 +148,7 @@ async function computeSessionDurations(userId) {
 
     return {
         accessExpiresIn: env.JWT_ACCESS_EXPIRY,
+        accessExpiresAt: new Date(Date.now() + parseExpiryToMs(env.JWT_ACCESS_EXPIRY)),
         refreshExpiresIn: `${staffHours}h`,
         refreshExpiresAt: new Date(Date.now() + staffHours * 60 * 60 * 1000),
     };

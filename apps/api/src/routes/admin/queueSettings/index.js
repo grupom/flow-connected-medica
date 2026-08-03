@@ -3,11 +3,9 @@
 const { query } = require('../../../db/pool');
 
 module.exports = async function queueSettingsRoutes(fastify) {
-    const auth = { preHandler: [fastify.authenticate] };
-
     // GET /api/admin/queue-settings
     // ?include_archived=true  → returns all (active + archived)
-    fastify.get('/', auth, async (request, reply) => {
+    fastify.get('/', fastify.adminOnly, async (request, reply) => {
         const includeArchived = request.query.include_archived === 'true';
         const { rows } = await query(
             `SELECT * FROM clinicqueue.queue_settings
@@ -19,7 +17,7 @@ module.exports = async function queueSettingsRoutes(fastify) {
 
     // POST /api/admin/queue-settings
     fastify.post('/', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             body: {
                 type: 'object',
@@ -74,7 +72,7 @@ module.exports = async function queueSettingsRoutes(fastify) {
 
     // PUT /api/admin/queue-settings/:prefix
     fastify.put('/:prefix', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { prefix: { type: 'string' } } },
             body: {
@@ -134,7 +132,7 @@ module.exports = async function queueSettingsRoutes(fastify) {
     });
 
     // PATCH /api/admin/queue-settings/:prefix/archive
-    fastify.patch('/:prefix/archive', auth, async (request, reply) => {
+    fastify.patch('/:prefix/archive', fastify.adminOnly, async (request, reply) => {
         const p = request.params.prefix.trim().toUpperCase();
         const { rows } = await query(
             `UPDATE clinicqueue.queue_settings
@@ -148,7 +146,7 @@ module.exports = async function queueSettingsRoutes(fastify) {
     });
 
     // PATCH /api/admin/queue-settings/:prefix/restore
-    fastify.patch('/:prefix/restore', auth, async (request, reply) => {
+    fastify.patch('/:prefix/restore', fastify.adminOnly, async (request, reply) => {
         const p = request.params.prefix.trim().toUpperCase();
         const { rows } = await query(
             `UPDATE clinicqueue.queue_settings

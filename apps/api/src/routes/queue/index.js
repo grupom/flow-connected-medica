@@ -83,19 +83,19 @@ module.exports = async function queueRoutes(fastify) {
 
     // POST /api/queue/start
     fastify.post('/start', { ...auth, ...bodyWithTicketId }, async (request, reply) => {
-        const ticket = await svc.startTicket(request.body);
+        const ticket = await svc.startTicket({ ...request.body, user_id: request.user.user_id });
         return reply.send({ data: ticket });
     });
 
     // POST /api/queue/recall
     fastify.post('/recall', { ...auth, ...bodyWithTicketId }, async (request, reply) => {
-        const ticket = await svc.recallTicket(request.body);
+        const ticket = await svc.recallTicket({ ...request.body, user_id: request.user.user_id });
         return reply.send({ data: ticket });
     });
 
     // POST /api/queue/finish
     fastify.post('/finish', { ...auth, ...bodyWithTicketId }, async (request, reply) => {
-        const ticket = await svc.finishTicket(request.body);
+        const ticket = await svc.finishTicket({ ...request.body, user_id: request.user.user_id });
         return reply.send({ data: ticket });
     });
 
@@ -114,13 +114,13 @@ module.exports = async function queueRoutes(fastify) {
             },
         },
     }, async (request, reply) => {
-        const ticket = await svc.cancelTicket(request.body);
+        const ticket = await svc.cancelTicket({ ...request.body, user_id: request.user.user_id });
         return reply.send({ data: ticket });
     });
 
     // POST /api/queue/no-show
     fastify.post('/no-show', { ...auth, ...bodyWithTicketId }, async (request, reply) => {
-        const ticket = await svc.noShowTicket(request.body);
+        const ticket = await svc.noShowTicket({ ...request.body, user_id: request.user.user_id });
         return reply.send({ data: ticket });
     });
 
@@ -141,7 +141,7 @@ module.exports = async function queueRoutes(fastify) {
             },
         },
     }, async (request, reply) => {
-        const ticket = await svc.transferTicket(request.body);
+        const ticket = await svc.transferTicket({ ...request.body, user_id: request.user.user_id });
         return reply.send({ data: ticket });
     });
 

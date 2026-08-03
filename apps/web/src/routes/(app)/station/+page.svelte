@@ -3,8 +3,12 @@
   import { api } from '$lib/api.js';
   import { auth } from '$lib/auth.js';
   import { toasts } from '$lib/stores.js';
-  import Modal from '$lib/components/Modal.svelte';
-  import { printTicket } from '$lib/printing/printTicket.js';
+  import TicketPanel from './_components/TicketPanel.svelte';
+  import ControlsPanel from './_components/ControlsPanel.svelte';
+  import QueueStatsPanel from './_components/QueueStatsPanel.svelte';
+  import RecentActivityPanel from './_components/RecentActivityPanel.svelte';
+  import TransferModal from './_components/TransferModal.svelte';
+  import NoShowRequeueModal from './_components/NoShowRequeueModal.svelte';
 
   // ── State ──────────────────────────────────────────────
   let stations = [];
@@ -26,9 +30,7 @@
 
   // Transfer State
   let showTransferModal = false;
-  let transferToPrefix = '';
-  let transferReason = '';
-  let submittingTransfer = false;
+  let transferModalRef;
 
   // No-Show Requeue State
   let showNoShowModal = false;
@@ -177,33 +179,13 @@
     if (!calledTicket || calledTicket.status !== 'EN_ATENCION') return;
     actionLoading = true;
     try {
-      const res = await api.post('/api/queue/finish', {
+      await api.post('/api/queue/finish', {
         ticket_id: calledTicket.ticket_id,
         station_id: Number(selectedStationId),
         user_id: $auth.user?.user_id
       });
-      const result = res?.data ?? res;
       toasts.success('Atención finalizada ✅');
       calledTicket = null;
-
-      // If this ticket belongs to a multi-area visit plan, the next step's
-      // ticket was just created — print it right here so staff can hand it
-      // to the patient immediately.
-      if (result?.next_ticket) {
-        const nt = result.next_ticket;
-        try {
-          await printTicket({
-            code: nt.code,
-            prefix: nt.prefix,
-            service_name: nt.service_name,
-            tck_number: nt.tck_number,
-          });
-          toasts.success(`Siguiente turno del plan: ${nt.code} (${nt.service_name}) — impreso`);
-        } catch (printErr) {
-          toasts.error(`Turno ${nt.code} (${nt.service_name}) creado pero falló al imprimir: ${printErr.message}`);
-        }
-      }
-
       await refreshQueue();
     } catch (e) {
       toasts.error(e.message || 'Error al finalizar');
@@ -252,32 +234,30 @@
 
   function openTransfer() {
     if (!calledTicket) return;
-    transferToPrefix = '';
-    transferReason = '';
     showTransferModal = true;
   }
 
-  async function handleTransfer() {
-    if (!calledTicket || !transferToPrefix) return;
+  async function handleTransfer(e) {
+    const { toPrefix, reason } = e.detail;
+    if (!calledTicket || !toPrefix) return;
     actionLoading = true;
-    submittingTransfer = true;
     try {
       await api.post('/api/queue/transfer', {
         ticket_id: calledTicket.ticket_id,
         station_id: Number(selectedStationId),
         user_id: $auth.user?.user_id,
-        to_prefix: transferToPrefix,
-        reason: transferReason
+        to_prefix: toPrefix,
+        reason
       });
-      toasts.success(`Turno transferido a cola ${transferToPrefix}`);
+      toasts.success(`Turno transferido a cola ${toPrefix}`);
       showTransferModal = false;
       calledTicket = null;
       await refreshQueue();
-    } catch (e) {
-      toasts.error(e.message || 'Error en transferencia');
+    } catch (e2) {
+      toasts.error(e2.message || 'Error en transferencia');
+      transferModalRef?.resetSubmitting();
     } finally {
       actionLoading = false;
-      submittingTransfer = false;
     }
   }
 
@@ -300,7 +280,8 @@
     }
   }
 
-  async function requeueTicket(ticketId) {
+  async function requeueTicket(e) {
+    const ticketId = e.detail;
     requeuingTicketId = ticketId;
     try {
       const res = await api.post('/api/queue/requeue-no-show', {
@@ -312,19 +293,11 @@
       toasts.success(`Turno ${ticket.code} reinsertado en la cola`);
       await loadNoShowList();
       await refreshQueue();
-    } catch (e) {
-      toasts.error(e.message || 'No se pudo reinsertar el turno');
+    } catch (e2) {
+      toasts.error(e2.message || 'No se pudo reinsertar el turno');
     } finally {
       requeuingTicketId = null;
     }
-  }
-
-  function timeAgo(iso) {
-    if (!iso) return '—';
-    const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-    if (mins < 1) return 'hace un momento';
-    if (mins < 60) return `hace ${mins} min`;
-    return `hace ${Math.floor(mins / 60)}h ${mins % 60}min`;
   }
 
   // ── Lifecycle ──────────────────────────────────────────
@@ -343,16 +316,6 @@
   function onStationChange() {
     calledTicket = null;
     refreshQueue();
-  }
-
-  // Status badge helpers
-  function statusLabel(s) {
-    const map = { 'waiting':'En Espera', 'serving':'Atendiendo', 'done':'Finalizado', 'no_show':'No-Show', 'cancelled':'Cancelado' };
-    return map[s] || s;
-  }
-  function statusClass(s) {
-    const map = { 'waiting':'badge-warning', 'serving':'badge-success', 'done':'badge-primary', 'no_show':'badge-danger', 'cancelled':'badge-gray' };
-    return map[s] || 'badge-gray';
   }
 </script>
 
@@ -413,245 +376,46 @@
 
 <!-- ═══════ MAIN LAYOUT ═══════ -->
 <div class="station-layout">
-
-  <!-- ── CENTER: Current Ticket ── -->
-  <div class="ticket-panel">
-    <div class="tp-header">Turno Actual</div>
-
-    {#if calledTicket}
-      <div class="tp-code">{calledTicket.code}</div>
-
-      <div class="tp-status" class:tp-llamado={isLlamado} class:tp-atencion={isEnAtencion}>
-        {isLlamado ? '🔔 LLAMADO' : '🩺 EN ATENCIÓN'}
-      </div>
-
-      {#if elapsedText}
-        <div class="tp-elapsed">
-          <span class="tp-elapsed-icon">⏱️</span>
-          <span class="tp-elapsed-time">{elapsedText}</span>
-        </div>
-      {/if}
-
-    {:else}
-      <div class="tp-empty">
-        <span class="tp-empty-dash">—</span>
-        <p>Sin turno activo</p>
-        <p class="tp-empty-hint">Presione "Llamar Siguiente" para atender</p>
-      </div>
-    {/if}
-  </div>
-
-  <!-- ── RIGHT: Controls ── -->
-  <div class="controls-panel">
-    <div class="cp-section">
-      <div class="cp-title">Controles de Cola</div>
-      <div class="cp-buttons">
-        <button
-          class="ctrl-btn ctrl-call"
-          on:click={callNext}
-          disabled={actionLoading || hasTicket}
-          title={hasTicket ? 'Finalice el turno actual primero' : 'Llamar siguiente turno'}
-        >
-          <span class="ctrl-icon">📢</span>
-          <span>Llamar Siguiente</span>
-        </button>
-
-        <button
-          class="ctrl-btn ctrl-recall"
-          on:click={recallTicket}
-          disabled={actionLoading || !isLlamado}
-          title="Re-anunciar turno actual"
-        >
-          <span class="ctrl-icon">🔔</span>
-          <span>Re-llamar</span>
-        </button>
-      </div>
-    </div>
-
-    <div class="cp-divider"></div>
-
-    <div class="cp-section">
-      <div class="cp-title">Atención</div>
-      <div class="cp-buttons">
-        <button
-          class="ctrl-btn ctrl-start"
-          on:click={startService}
-          disabled={actionLoading || !isLlamado}
-          title="Iniciar atención del paciente"
-        >
-          <span class="ctrl-icon">▶️</span>
-          <span>Iniciar Atención</span>
-        </button>
-
-        <button
-          class="ctrl-btn ctrl-finish"
-          on:click={finishService}
-          disabled={actionLoading || !isEnAtencion}
-          title="Finalizar atención"
-        >
-          <span class="ctrl-icon">✅</span>
-          <span>Finalizar Atención</span>
-        </button>
-      </div>
-    </div>
-
-    <div class="cp-divider"></div>
-
-    <div class="cp-section">
-      <div class="cp-title">Acciones Adicionales</div>
-      <div class="cp-buttons cp-buttons-sm">
-        <button
-          class="ctrl-btn ctrl-noshow"
-          on:click={markNoShow}
-          disabled={actionLoading || !isLlamado}
-          title="Paciente no se presentó"
-        >
-          <span class="ctrl-icon">🚫</span>
-          <span>No-Show</span>
-        </button>
-
-        <button
-          class="ctrl-btn ctrl-cancel"
-          on:click={cancelTicket}
-          disabled={actionLoading || !hasTicket}
-          title="Cancelar turno"
-        >
-          <span class="ctrl-icon">✕</span>
-          <span>Cancelar</span>
-        </button>
-
-        <button
-          class="ctrl-btn ctrl-transfer"
-          on:click={openTransfer}
-          disabled={actionLoading || !hasTicket}
-          title="Transferir a otro servicio"
-        >
-          <span class="ctrl-icon">🔄</span>
-          <span>Transferir</span>
-        </button>
-
-        <button
-          class="ctrl-btn ctrl-requeue"
-          on:click={openNoShowModal}
-          disabled={actionLoading}
-          title="Ver y reinsertar turnos marcados como No-Show"
-        >
-          <span class="ctrl-icon">↩️</span>
-          <span>Reinsertar No-Show</span>
-        </button>
-      </div>
-    </div>
-  </div>
+  <TicketPanel {calledTicket} {elapsedText} {isLlamado} {isEnAtencion} />
+  <ControlsPanel
+    {actionLoading} {hasTicket} {isLlamado} {isEnAtencion}
+    on:call-next={callNext}
+    on:recall={recallTicket}
+    on:start={startService}
+    on:finish={finishService}
+    on:no-show={markNoShow}
+    on:cancel={cancelTicket}
+    on:transfer={openTransfer}
+    on:open-requeue={openNoShowModal}
+  />
 </div>
 
 <!-- ═══════ BOTTOM: Stats + Activity ═══════ -->
 <div class="bottom-row">
-  <!-- Queue Stats -->
-  <div class="stats-panel">
-    <div class="stat-card stat-waiting">
-      <span class="stat-icon">⏳</span>
-      <span class="stat-num">{stats.waiting}</span>
-      <span class="stat-label">En Espera</span>
-    </div>
-    <div class="stat-card stat-serving">
-      <span class="stat-icon">🩺</span>
-      <span class="stat-num">{stats.serving}</span>
-      <span class="stat-label">Atendiendo</span>
-    </div>
-    <div class="stat-card stat-done">
-      <span class="stat-icon">✅</span>
-      <span class="stat-num">{stats.done}</span>
-      <span class="stat-label">Completados</span>
-    </div>
-    <div class="stat-card stat-noshow">
-      <span class="stat-icon">🚫</span>
-      <span class="stat-num">{stats.noShow}</span>
-      <span class="stat-label">No-Show</span>
-    </div>
-  </div>
-
-  <!-- Activity Log -->
-  <div class="activity-panel">
-    <div class="ap-title">Actividad Reciente</div>
-    {#if recentTickets.length === 0}
-      <p class="ap-empty">Sin actividad reciente</p>
-    {:else}
-      <div class="ap-list">
-        {#each recentTickets as t}
-          <div class="ap-row">
-            <strong class="ap-code">{t.ticket_number}</strong>
-            <span class="ap-module">{t.module_name || t.station_name || '—'}</span>
-            <span class="badge {statusClass(t.status)}">{statusLabel(t.status)}</span>
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </div>
+  <QueueStatsPanel {stats} />
+  <RecentActivityPanel {recentTickets} />
 </div>
 
 {/if}
 
-<!-- ═══════ TRANSFER MODAL ═══════ -->
-<Modal bind:open={showTransferModal} title="Transferir Turno" on:close={() => showTransferModal = false}>
-  <form on:submit|preventDefault={handleTransfer} class="modal-form">
-    <p class="text-sm muted mb-16">
-      Transferir turno <strong>{calledTicket?.code}</strong> a otra cola de servicio.
-      El turno actual será marcado como transferido y se generará un nuevo turno en la cola destino.
-    </p>
+<TransferModal
+  bind:this={transferModalRef}
+  bind:open={showTransferModal}
+  ticketCode={calledTicket?.code}
+  {queueSettings}
+  {stationPrefix}
+  on:close={() => showTransferModal = false}
+  on:transfer={handleTransfer}
+/>
 
-    <div class="form-group">
-      <label class="form-label" for="transfer-prefix">Servicio de Destino</label>
-      <select id="transfer-prefix" class="input" bind:value={transferToPrefix} required>
-        <option value="" disabled>Seleccionar servicio...</option>
-        {#each queueSettings as qs}
-          {#if qs.prefix !== stationPrefix && qs.service_name}
-            <option value={qs.prefix}>{qs.service_name} ({qs.prefix})</option>
-          {/if}
-        {/each}
-      </select>
-    </div>
-
-    <div class="form-group mt-16">
-      <label class="form-label" for="transfer-notes">Notas (Opcional)</label>
-      <textarea id="transfer-notes" class="input text-area" bind:value={transferReason} placeholder="Razón de la transferencia..."></textarea>
-    </div>
-
-    <div class="modal-footer mt-16" style="display:flex; justify-content:flex-end; gap:8px;">
-      <button type="button" class="btn btn-ghost" on:click={() => showTransferModal = false}>Cancelar</button>
-      <button type="submit" class="btn btn-primary" disabled={submittingTransfer || !transferToPrefix}>
-        {submittingTransfer ? 'Transfiriendo...' : 'Transferir Turno'}
-      </button>
-    </div>
-  </form>
-</Modal>
-
-<!-- ═══════ NO-SHOW REQUEUE MODAL ═══════ -->
-<Modal bind:open={showNoShowModal} title="Turnos No-Show — Reinsertar" size="lg" on:close={() => showNoShowModal = false}>
-  {#if loadingNoShowList}
-    <p class="text-sm muted">Cargando…</p>
-  {:else if noShowList.length === 0}
-    <p class="text-sm muted">No hay turnos marcados como No-Show hoy para esta cola.</p>
-  {:else}
-    <div class="noshow-list">
-      {#each noShowList as t (t.ticket_id)}
-        <div class="noshow-row">
-          <div class="noshow-info">
-            <strong class="noshow-code">{t.code}</strong>
-            <span class="noshow-meta">No-Show {timeAgo(t.called_at)} · brecha: {t.gap} turno(s)</span>
-          </div>
-          <button
-            class="btn btn-primary btn-sm"
-            disabled={!t.eligible || requeuingTicketId === t.ticket_id}
-            title={t.eligible ? 'Reinsertar en la cola' : `Bloqueado: ya se llamaron ${t.gap} turnos después (límite excedido)`}
-            on:click={() => requeueTicket(t.ticket_id)}
-          >
-            {requeuingTicketId === t.ticket_id ? 'Reinsertando…' : 'Reinsertar'}
-          </button>
-        </div>
-      {/each}
-    </div>
-  {/if}
-</Modal>
+<NoShowRequeueModal
+  bind:open={showNoShowModal}
+  {noShowList}
+  loading={loadingNoShowList}
+  {requeuingTicketId}
+  on:close={() => showNoShowModal = false}
+  on:requeue={requeueTicket}
+/>
 
 <style>
 /* ═══════ LOADING ═══════ */
@@ -768,175 +532,6 @@
   margin-bottom: 20px;
 }
 
-/* ── Ticket Panel ── */
-.ticket-panel {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  padding: 32px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-height: 320px;
-  justify-content: center;
-  box-shadow: var(--shadow-sm);
-}
-.tp-header {
-  font-size: .7rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: .15em;
-  color: var(--text-muted);
-  margin-bottom: 16px;
-}
-.tp-code {
-  font-size: clamp(4rem, 10vw, 7rem);
-  font-weight: 900;
-  color: var(--primary-dark);
-  line-height: 1;
-  letter-spacing: -3px;
-  text-align: center;
-}
-.tp-status {
-  margin-top: 12px;
-  font-size: .85rem;
-  font-weight: 700;
-  padding: 5px 20px;
-  border-radius: 99px;
-}
-.tp-llamado {
-  background: #fef3c7;
-  color: #92400e;
-}
-.tp-atencion {
-  background: #dcfce7;
-  color: #166534;
-}
-.tp-elapsed {
-  margin-top: 16px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-muted);
-}
-.tp-elapsed-time {
-  font-size: 1.75rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-}
-.tp-module {
-  margin-top: 12px;
-  font-size: .9rem;
-  color: var(--text-muted);
-}
-.tp-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-muted);
-  text-align: center;
-}
-.tp-empty-dash {
-  font-size: 4rem;
-  color: var(--border);
-  line-height: 1;
-}
-.tp-empty p { margin: 0; font-size: .95rem; }
-.tp-empty-hint { font-size: .8rem !important; color: var(--text-xs); margin-top: 8px !important; }
-
-/* ── Controls Panel ── */
-.controls-panel {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  padding: 24px;
-  box-shadow: var(--shadow-sm);
-}
-.cp-section { margin-bottom: 4px; }
-.cp-title {
-  font-size: .7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  color: var(--text-muted);
-  margin-bottom: 10px;
-}
-.cp-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.cp-buttons-sm {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.cp-buttons-sm .ctrl-btn {
-  min-width: 0;
-}
-.cp-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 14px 0;
-}
-
-.ctrl-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: white;
-  font-size: .875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all .15s;
-  color: var(--text);
-  width: 100%;
-  justify-content: center;
-}
-.ctrl-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0,0,0,.08);
-}
-.ctrl-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-  transform: none;
-}
-.ctrl-icon { font-size: 1rem; }
-
-/* Button variants */
-.ctrl-call { background: var(--primary); color: white; border-color: var(--primary); }
-.ctrl-call:hover:not(:disabled) { background: var(--primary-dark); }
-.ctrl-recall { background: #f8fafc; border-color: #e2e8f0; }
-.ctrl-recall:hover:not(:disabled) { background: #eef2ff; border-color: var(--primary); color: var(--primary); }
-.ctrl-start { background: #f0fdf4; border-color: #86efac; color: #166534; }
-.ctrl-start:hover:not(:disabled) { background: #dcfce7; }
-.ctrl-finish { background: #166534; color: white; border-color: #166534; }
-.ctrl-finish:hover:not(:disabled) { background: #15803d; }
-.ctrl-noshow { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
-.ctrl-noshow:hover:not(:disabled) { background: #fef3c7; }
-.ctrl-cancel { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }
-.ctrl-cancel:hover:not(:disabled) { background: #fee2e2; }
-.ctrl-transfer { background: #f0f9ff; border-color: #93c5fd; color: #1d4ed8; }
-.ctrl-transfer:hover:not(:disabled) { background: #dbeafe; }
-.ctrl-requeue { background: #faf5ff; border-color: #d8b4fe; color: #6b21a8; }
-.ctrl-requeue:hover:not(:disabled) { background: #f3e8ff; }
-
-/* ═══════ NO-SHOW REQUEUE MODAL ═══════ */
-.noshow-list { display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto; }
-.noshow-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-}
-.noshow-info { display: flex; flex-direction: column; gap: 2px; }
-.noshow-code { font-size: 1rem; color: var(--text); }
-.noshow-meta { font-size: .75rem; color: var(--text-muted); }
-
 /* ═══════ BOTTOM ROW ═══════ */
 .bottom-row {
   display: grid;
@@ -944,93 +539,12 @@
   gap: 20px;
 }
 
-/* Stats */
-.stats-panel {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-.stat-card {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  min-width: 100px;
-  box-shadow: var(--shadow-sm);
-}
-.stat-icon { font-size: 1.25rem; }
-.stat-num {
-  font-size: 1.75rem;
-  font-weight: 800;
-  line-height: 1;
-}
-.stat-label {
-  font-size: .7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .05em;
-  color: var(--text-muted);
-}
-.stat-waiting .stat-num { color: #f59e0b; }
-.stat-serving .stat-num { color: #22c55e; }
-.stat-done .stat-num { color: var(--primary); }
-.stat-noshow .stat-num { color: #ef4444; }
-
-/* Activity */
-.activity-panel {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 16px 20px;
-  box-shadow: var(--shadow-sm);
-}
-.ap-title {
-  font-size: .7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  color: var(--text-muted);
-  margin-bottom: 10px;
-}
-.ap-empty {
-  color: var(--text-muted);
-  font-size: .85rem;
-}
-.ap-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 200px;
-  overflow-y: auto;
-}
-.ap-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: .85rem;
-  padding: 4px 0;
-  border-bottom: 1px solid var(--border);
-}
-.ap-row:last-child { border-bottom: none; }
-.ap-code { min-width: 50px; color: var(--text); }
-.ap-module { flex: 1; color: var(--text-muted); font-size: .8rem; }
-
 /* ═══════ RESPONSIVE ═══════ */
 @media (max-width: 900px) {
   .station-layout {
     grid-template-columns: 1fr;
   }
   .bottom-row {
-    grid-template-columns: 1fr;
-  }
-  .stats-panel {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .cp-buttons-sm {
     grid-template-columns: 1fr;
   }
 }

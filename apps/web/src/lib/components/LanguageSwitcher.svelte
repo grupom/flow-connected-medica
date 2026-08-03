@@ -1,13 +1,18 @@
 <script>
-    import { locale, availableLocales } from "$lib/i18n";
+    import { locale as patientLocale, availableLocales } from "$lib/i18n";
+
+    // Defaults to the patient-facing locale (login/kiosk/board); pass
+    // localeStore={adminLocale} to control the staff dashboard's own
+    // independent language preference instead.
+    export let localeStore = patientLocale;
 
     function handleChange(e) {
-        locale.set(e.target.value);
+        localeStore.set(e.target.value);
     }
 </script>
 
 <div class="lang-switcher">
-    <select class="lang-select" value={$locale} on:change={handleChange}>
+    <select class="lang-select" value={$localeStore} on:change={handleChange}>
         {#each availableLocales as lang}
             <option value={lang.code}>{lang.flag} {lang.label}</option>
         {/each}

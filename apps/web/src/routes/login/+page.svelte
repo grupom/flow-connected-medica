@@ -35,11 +35,7 @@
                 login,
                 password,
             });
-            auth.setAuth({
-                user: res.user,
-                accessToken: res.accessToken,
-                refreshToken: res.refreshToken,
-            });
+            auth.setUser(res.user); // session cookies already set by the server
 
             // Si el usuario tiene un kiosco asignado, redirigir al modo kiosco
             try {

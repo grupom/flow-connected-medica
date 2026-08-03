@@ -4,6 +4,31 @@ const { loginSchema, refreshSchema, logoutSchema } = require('./schemas');
 const svc = require('./service');
 const env = require('../../config/env');
 
+// Shared cookie attributes for the two session cookies. `path` differs per
+// cookie (see setSessionCookies) — the refresh cookie is scoped narrowly to
+// /api/auth since only /refresh and /logout ever need to read it, shrinking
+// the exposure of a token that can live up to 100 years for kiosk accounts.
+function cookieOpts(path, expires) {
+    return { httpOnly: true, sameSite: 'lax', secure: env.COOKIE_SECURE, path, expires };
+}
+
+function setSessionCookies(reply, accessToken, refreshToken, durations) {
+    reply
+        .setCookie('cq_access_token', accessToken, cookieOpts('/', durations.accessExpiresAt))
+        .setCookie('cq_refresh_token', refreshToken, cookieOpts('/api/auth', durations.refreshExpiresAt));
+}
+
+// clearCookie defaults to path:'/' if not given explicitly — since
+// cq_refresh_token was set at path:'/api/auth', clearing it without matching
+// that path would create a *separate* cookie at '/' instead of removing the
+// original, leaving it to linger in the browser. Both paths below must match
+// what setSessionCookies used.
+function clearSessionCookies(reply) {
+    reply
+        .clearCookie('cq_access_token', { path: '/', sameSite: 'lax', secure: env.COOKIE_SECURE })
+        .clearCookie('cq_refresh_token', { path: '/api/auth', sameSite: 'lax', secure: env.COOKIE_SECURE });
+}
+
 module.exports = async function authRoutes(fastify) {
     // ── POST /api/auth/login ──────────────────────────────────────────────────
     fastify.post('/login', loginSchema, async (request, reply) => {
@@ -44,9 +69,9 @@ module.exports = async function authRoutes(fastify) {
         // Update last login
         await svc.touchLastLogin(user.user_id);
 
+        setSessionCookies(reply, accessToken, refreshToken, durations);
+
         return reply.code(200).send({
-            accessToken,
-            refreshToken,
             user: {
                 user_id: user.user_id,
                 username: user.username,
@@ -59,27 +84,18 @@ module.exports = async function authRoutes(fastify) {
     });
 
     // ── POST /api/auth/refresh ────────────────────────────────────────────────
-    fastify.post('/refresh', refreshSchema, async (request, reply) => {
-        const { refreshToken } = request.body;
-
-        // Verify JWT signature first. NOTE: request.refreshVerify() (the
-        // request-decorator form) only ever looks for a token in the
-        // Authorization header or a cookie — it has no "token" option, so
-        // passing one here was silently ignored and this ALWAYS threw.
-        // fastify.jwt.refresh.verify(token) is the correct way to verify an
-        // explicit token string pulled from the request body.
-        let decoded;
-        try {
-            decoded = await fastify.jwt.refresh.verify(refreshToken);
-        } catch {
-            return reply.code(401).send({ error: 'Unauthorized', message: 'Invalid refresh token' });
-        }
+    // Now that the refresh JWT registration has a `cookie` fallback (see
+    // plugins/jwt.js), the decorator form works correctly here — the earlier
+    // manual fastify.jwt.refresh.verify(refreshToken) workaround was only
+    // needed because there was no cookie/header for it to read.
+    fastify.post('/refresh', { ...refreshSchema, preHandler: [fastify.authenticateRefresh] }, async (request, reply) => {
+        const { jti } = request.user;
 
         // Atomically verify-and-revoke in one statement — if this returns
         // null, either the token never existed, was already rotated by a
         // concurrent request, or genuinely expired. Any of those is a clean
         // 401, not a race artifact.
-        const stored = await svc.rotateRefreshToken(decoded.jti);
+        const stored = await svc.rotateRefreshToken(jti);
         if (!stored) {
             return reply.code(401).send({ error: 'Unauthorized', message: 'Refresh token revoked or expired' });
         }
@@ -97,9 +113,9 @@ module.exports = async function authRoutes(fastify) {
         const newRefreshToken = await reply.refreshSign({ ...payload, jti: refreshRaw }, { expiresIn: durations.refreshExpiresIn });
         await svc.storeRefreshToken(stored.user_id, refreshRaw, durations.refreshExpiresAt);
 
+        setSessionCookies(reply, accessToken, newRefreshToken, durations);
+
         return reply.code(200).send({
-            accessToken,
-            refreshToken: newRefreshToken,
             user: {
                 user_id: stored.user_id,
                 username: stored.username,
@@ -112,16 +128,20 @@ module.exports = async function authRoutes(fastify) {
     });
 
     // ── POST /api/auth/logout ─────────────────────────────────────────────────
+    // Deliberately NOT using the authenticateRefresh preHandler here: logout
+    // must stay a clean, always-{ok:true} no-op even with a missing/expired/
+    // invalid refresh cookie (e.g. a second logout click, or a stale tab) —
+    // a preHandler would 401 that case instead of just clearing cookies.
     fastify.post('/logout', logoutSchema, async (request, reply) => {
-        const { refreshToken } = request.body;
         try {
-            const decoded = await fastify.jwt.refresh.verify(refreshToken);
-            if (decoded?.jti) {
-                await svc.revokeRefreshToken(decoded.jti);
+            await request.refreshVerify();
+            if (request.user?.jti) {
+                await svc.revokeRefreshToken(request.user.jti);
             }
         } catch {
-            // Ignore invalid tokens on logout — just ack
+            // Ignore invalid/missing/expired refresh cookie — always ack
         }
+        clearSessionCookies(reply);
         return reply.code(200).send({ ok: true });
     });
 };

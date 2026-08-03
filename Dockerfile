@@ -66,6 +66,14 @@ RUN mkdir -p apps/api/tts/bin apps/api/tts/models && \
 # Create runtime directories
 RUN mkdir -p apps/api/cache/tts apps/api/tts/tmp apps/api/media/boards
 
+# ── Run as a non-root user ───────────────────────────────────────────────────
+# node:20-alpine already ships a `node` user at a fixed uid/gid 1000 — reuse it
+# instead of creating a new one (deterministic across rebuilds, needed to
+# `chown` the tts_cache/board_media named volumes to match on deploy).
+RUN chown -R node:node /app
+
+USER node
+
 EXPOSE 3001
 
 ENV NODE_ENV=production

@@ -3,11 +3,9 @@
 const { query } = require('../../../db/pool');
 
 module.exports = async function userRolesRoutes(fastify) {
-    const auth = { preHandler: [fastify.authenticate] };
-
     // POST /api/admin/users/:id/roles — assign a role to a user
     fastify.post('/:id/roles', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
             body: {
@@ -33,7 +31,7 @@ module.exports = async function userRolesRoutes(fastify) {
 
     // DELETE /api/admin/users/:id/roles/:roleId — remove role from user
     fastify.delete('/:id/roles/:roleId', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: {
                 type: 'object',

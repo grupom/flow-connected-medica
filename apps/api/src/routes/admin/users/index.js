@@ -4,21 +4,8 @@ const { query } = require('../../../db/pool');
 const bcrypt = require('bcrypt');
 
 module.exports = async function usersRoutes(fastify) {
-    const auth = { preHandler: [fastify.authenticate] };
-    const adminOnly = {
-        preHandler: [
-            fastify.authenticate,
-            async (request, reply) => {
-                const roles = request.user?.role_codes ?? [];
-                if (!roles.includes('ADMIN')) {
-                    return reply.code(403).send({ error: 'Forbidden', message: 'Se requiere rol ADMIN' });
-                }
-            },
-        ],
-    };
-
     // GET /api/admin/users
-    fastify.get('/', auth, async (request, reply) => {
+    fastify.get('/', fastify.adminOnly, async (request, reply) => {
         const { rows } = await query(
             `SELECT * FROM clinicqueue.v_users ORDER BY display_name`,
             []
@@ -28,7 +15,7 @@ module.exports = async function usersRoutes(fastify) {
 
     // POST /api/admin/users
     fastify.post('/', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             body: {
                 type: 'object',
@@ -65,7 +52,7 @@ module.exports = async function usersRoutes(fastify) {
 
     // PUT /api/admin/users/:id
     fastify.put('/:id', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
             body: {
@@ -97,7 +84,7 @@ module.exports = async function usersRoutes(fastify) {
 
     // PATCH /api/admin/users/:id/status
     fastify.patch('/:id/status', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
             body: {
@@ -124,7 +111,7 @@ module.exports = async function usersRoutes(fastify) {
     // refresh tokens can be configured to never expire on their own.
     // ADMIN-only: this is a security action, not a routine profile edit.
     fastify.post('/:id/revoke-sessions', {
-        ...adminOnly,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
         },
@@ -139,8 +126,10 @@ module.exports = async function usersRoutes(fastify) {
     });
 
     // PATCH /api/admin/users/:id/password
+    // ADMIN-only: this resets another user's password without knowing the
+    // current one. Self-service password change lives at PUT /api/profile/password.
     fastify.patch('/:id/password', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
             body: {

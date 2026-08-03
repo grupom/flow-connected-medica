@@ -9,10 +9,12 @@
 ALTER TABLE clinicqueue.display_boards
     ADD COLUMN IF NOT EXISTS description        TEXT          NULL,
     ADD COLUMN IF NOT EXISTS sound_enabled      BOOLEAN       NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS show_waiting_count BOOLEAN       NOT NULL DEFAULT true,
     ADD COLUMN IF NOT EXISTS max_in_service_rows INTEGER      NOT NULL DEFAULT 10,
     ADD COLUMN IF NOT EXISTS voice_speed        NUMERIC(3,2)  NOT NULL DEFAULT 1.0,
     ADD COLUMN IF NOT EXISTS language           VARCHAR(10)   NOT NULL DEFAULT 'es',
-    ADD COLUMN IF NOT EXISTS ding_sound         VARCHAR(20)   NOT NULL DEFAULT 'gentle';
+    ADD COLUMN IF NOT EXISTS ding_sound         VARCHAR(20)   NOT NULL DEFAULT 'gentle',
+    ADD COLUMN IF NOT EXISTS updated_at         TIMESTAMPTZ   NOT NULL DEFAULT now();
 
 -- ── 2. system_settings — key/value store ─────────────────────────────────────
 

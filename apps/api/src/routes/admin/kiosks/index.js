@@ -3,11 +3,9 @@
 const { query } = require('../../../db/pool');
 
 module.exports = async function adminKiosksRoutes(fastify) {
-    const auth = { preHandler: [fastify.authenticate] };
-
     // GET /api/admin/kiosks
     // List all kiosks
-    fastify.get('/', auth, async (request, reply) => {
+    fastify.get('/', fastify.adminOnly, async (request, reply) => {
         const { rows } = await query(
             `SELECT k.*, u.username as linked_user
              FROM clinicqueue.kiosks k
@@ -21,7 +19,7 @@ module.exports = async function adminKiosksRoutes(fastify) {
     // GET /api/admin/kiosks/:id
     // Get a specific kiosk and its allowed queues
     fastify.get('/:id', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } }
         }
@@ -57,7 +55,7 @@ module.exports = async function adminKiosksRoutes(fastify) {
     // POST /api/admin/kiosks
     // Create a new kiosk
     fastify.post('/', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             body: {
                 type: 'object',
@@ -94,7 +92,7 @@ module.exports = async function adminKiosksRoutes(fastify) {
     // PUT /api/admin/kiosks/:id
     // Update an existing kiosk
     fastify.put('/:id', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
             body: {
@@ -132,7 +130,7 @@ module.exports = async function adminKiosksRoutes(fastify) {
     // PATCH /api/admin/kiosks/:id/status
     // Update kiosk active status
     fastify.patch('/:id/status', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
             body: { type: 'object', required: ['is_active'], properties: { is_active: { type: 'boolean' } } }
@@ -156,7 +154,7 @@ module.exports = async function adminKiosksRoutes(fastify) {
     // PUT /api/admin/kiosks/:id/queues
     // Update allowed queues for a kiosk
     fastify.put('/:id/queues', {
-        ...auth,
+        ...fastify.adminOnly,
         schema: {
             params: { type: 'object', properties: { id: { type: 'integer' } } },
             body: {

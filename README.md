@@ -155,6 +155,11 @@ docker compose build --no-cache
 
 # 4. Levantar con la nueva versión
 docker compose up -d
+
+# 5. Aplicar migraciones de base de datos pendientes (agrega columnas/tablas
+#    nuevas sin borrar datos existentes — es seguro ejecutarlo aunque no haya
+#    migraciones nuevas, las ya aplicadas se saltan automáticamente)
+docker compose exec api npm run migrate
 ```
 
 ---
