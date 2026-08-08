@@ -142,13 +142,28 @@ docker compose up -d
 
 ## Actualización del sistema
 
-Cuando reciba una nueva versión del sistema:
+El UI de este repositorio se entrega **precompilado** (`apps/web/build/`) — no
+incluye el código fuente del frontend ni su toolchain de compilación. El
+archivo `apps/web/build/BUILD_INFO.txt` indica la versión/fecha del UI
+publicado.
+
+### Caso A: solo cambió el UI (lo más común)
+
+```bash
+git pull
+docker compose restart api
+```
+
+El `apps/web/build/` se monta como volumen dentro del contenedor — un
+`restart` (segundos) es suficiente, no hace falta reconstruir la imagen.
+
+### Caso B: cambió el API, el Dockerfile o dependencias
 
 ```bash
 # 1. Bajar el sistema actual
 docker compose down
 
-# 2. Reemplazar los archivos del proyecto (excepto .env)
+# 2. Reemplazar los archivos del proyecto (excepto .env) — git pull
 
 # 3. Reconstruir la imagen
 docker compose build --no-cache
@@ -161,6 +176,9 @@ docker compose up -d
 #    migraciones nuevas, las ya aplicadas se saltan automáticamente)
 docker compose exec api npm run migrate
 ```
+
+> Ante la duda, siempre puede ejecutar el flujo del Caso B — es más lento pero
+> cubre ambos casos.
 
 ---
 
@@ -228,7 +246,9 @@ docker compose exec api node apps/api/db/seeds/demo_seed.js
 ```
 Servidor (host)
 ├── :3001  ──→  contenedor API (Node.js + Fastify)
-│                  ├── Sirve el UI (SvelteKit compilado, modo SPA)
+│                  ├── Sirve el UI precompilado (apps/web/build/, montado
+│                  │   como volumen — este repo no incluye el código fuente
+│                  │   del frontend, solo el artefacto ya compilado)
 │                  ├── API REST en /api/*
 │                  └── WebSocket para actualizaciones en tiempo real
 │                         └── se conecta a postgres:5432 (interno)

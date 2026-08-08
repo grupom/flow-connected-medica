@@ -54,6 +54,9 @@ services:
       - tts_cache:/app/apps/api/cache
       # Persist uploaded board ad media (video/images) across container restarts
       - board_media:/app/apps/api/media
+      # UI precompilado: monta el build del host para que un `git pull` +
+      # `docker compose restart api` refleje la nueva version sin rebuild.
+      - ./apps/web/build:/app/apps/web/build:ro
     depends_on:
       postgres:
         condition: service_healthy

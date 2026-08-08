@@ -1,0 +1,1 @@
+.loading-screen.svelte-1uha8ag{background:#f8fafc;justify-content:center;align-items:center;height:100vh;display:flex}.spinner.svelte-1uha8ag{border:3px solid #e2e8f0;border-top-color:#3b82f6;border-radius:50%;width:40px;height:40px;animation:.8s linear infinite svelte-1uha8ag-spin}@keyframes svelte-1uha8ag-spin{to{transform:rotate(360deg)}}

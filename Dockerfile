@@ -1,27 +1,9 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Stage 1 — Build SvelteKit web UI
-# ──────────────────────────────────────────────────────────────────────────────
-FROM node:20-alpine AS web-builder
-
-WORKDIR /build
-
-# Copy package manifests for layer caching
-COPY package.json package-lock.json ./
-COPY apps/web/package.json ./apps/web/
-COPY apps/api/package.json ./apps/api/
-
-# Install all deps (dev tools required for the SvelteKit build)
-RUN npm ci
-
-# Copy web source and compile
-COPY apps/web ./apps/web
-
-# Empty PUBLIC_API_URL = same-origin relative paths (/api/...) — no CORS needed
-ENV PUBLIC_API_URL=
-RUN npm run build:web
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Stage 2 — Production API server (serves API + compiled web UI)
+# Production API server (serves API + precompiled web UI)
+#
+# El UI (apps/web/build) llega ya compilado en este repo — no se distribuye ni
+# se compila el codigo fuente del frontend aqui. Se actualiza vía
+# scripts/release-medica.ps1 en flow-connected.
 # ──────────────────────────────────────────────────────────────────────────────
 FROM node:20-alpine AS production
 
@@ -30,20 +12,19 @@ WORKDIR /app
 # Install wget + tar for Piper TTS download
 RUN apk add --no-cache wget tar
 
-# Copy package manifests (both workspaces needed for monorepo hoisting)
+# Copy package manifests (api workspace only — apps/web has no package.json)
 COPY package.json package-lock.json ./
 COPY apps/api/package.json ./apps/api/
-COPY apps/web/package.json ./apps/web/
 
-# Install production deps only — apps/web has no production deps so nothing extra is added
+# Install production deps only
 RUN npm ci --omit=dev
 
 # Copy API source and database scripts
 COPY apps/api/src ./apps/api/src
 COPY apps/api/db  ./apps/api/db
 
-# Copy compiled web UI from Stage 1
-COPY --from=web-builder /build/apps/web/build ./apps/web/build
+# Copy precompiled web UI (committed to this repo, see apps/web/build/)
+COPY apps/web/build ./apps/web/build
 
 # ── Download Piper TTS (Linux x86_64) ────────────────────────────────────────
 # Falls back gracefully to browser SpeechSynthesis if the download fails.

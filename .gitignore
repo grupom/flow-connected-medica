@@ -2,10 +2,12 @@ node_modules/
 .env
 dist/
 .svelte-kit/
-build/
 *.log
 .DS_Store
 Thumbs.db
+
+# apps/web/build/ NO se ignora: aqui vive el UI precompilado que se distribuye
+# a este repo (no hay codigo fuente del UI en flow-connected-medica).
 
 # Piper TTS — binary, models and generated audio cache (run setup-piper.js once)
 apps/api/tts/bin/
