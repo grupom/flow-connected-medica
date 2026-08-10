@@ -6,7 +6,7 @@ node_modules
 apps/*/node_modules
 
 apps/web/.svelte-kit
-apps/web/build
+# apps/web/build/ NO se excluye: es el UI precompilado que necesita el Dockerfile (COPY apps/web/build ./apps/web/build)
 
 apps/api/cache
 apps/api/tts/bin
