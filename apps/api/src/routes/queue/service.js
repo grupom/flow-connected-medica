@@ -329,6 +329,107 @@ async function transferTicket({ ticket_id, station_id, user_id, to_prefix, reaso
 }
 
 /**
+ * Transfer a called/in-attention ticket into a multi-area visit plan: the
+ * original ticket is closed out (status TRANSFERIDO) and 2+ new tickets are
+ * created across the chosen destination queues — same rules as
+ * createVisitPlan (min 2 areas, no duplicate prefixes, only active queues),
+ * since one ticket row can't be split across multiple queues.
+ */
+async function transferTicketMultiArea({ ticket_id, station_id, user_id, to_prefixes, reason }) {
+    if (!Array.isArray(to_prefixes) || to_prefixes.length < 2) {
+        throw Object.assign(new Error('Una transferencia a varias áreas requiere al menos 2 áreas destino'), { statusCode: 400 });
+    }
+    const prefixes = to_prefixes.map((p) => String(p).trim().toUpperCase());
+    if (new Set(prefixes).size !== prefixes.length) {
+        throw Object.assign(new Error('No se puede repetir la misma cola destino'), { statusCode: 400 });
+    }
+
+    return transaction(async (client) => {
+        const exec = (sql, params) => client.query(sql, params);
+        await assertStationAccess(exec, station_id, user_id);
+
+        const { rows: tRows } = await client.query(
+            `SELECT * FROM clinicqueue.tickets WHERE ticket_id = $1 AND station_id = $2 FOR UPDATE`,
+            [ticket_id, station_id]
+        );
+        if (!tRows.length) throw Object.assign(new Error('Ticket not found'), { statusCode: 404 });
+        const oldTicket = tRows[0];
+
+        const { rows: qsRows } = await client.query(
+            `SELECT prefix, service_name FROM clinicqueue.queue_settings WHERE prefix = ANY($1) AND archived = false`,
+            [prefixes]
+        );
+        const found = new Map(qsRows.map((r) => [r.prefix, r.service_name]));
+        const missing = prefixes.filter((p) => !found.has(p));
+        if (missing.length) {
+            throw Object.assign(new Error(`Cola(s) inválida(s) o archivada(s): ${missing.join(', ')}`), { statusCode: 400 });
+        }
+
+        await client.query(
+            `UPDATE clinicqueue.tickets SET status = 'TRANSFERIDO', station_id = null, module_id = null WHERE ticket_id = $1`,
+            [ticket_id]
+        );
+
+        const { rows: planRows } = await client.query(
+            `INSERT INTO clinicqueue.visit_plans (created_by) VALUES ($1) RETURNING visit_plan_id`,
+            [user_id]
+        );
+        const visitPlanId = planRows[0].visit_plan_id;
+
+        const tickets = [];
+        for (let i = 0; i < prefixes.length; i++) {
+            const prefix = prefixes[i];
+            const { rows: stepRows } = await client.query(
+                `INSERT INTO clinicqueue.visit_plan_steps (visit_plan_id, step_order, prefix)
+                 VALUES ($1, $2, $3) RETURNING step_id`,
+                [visitPlanId, i + 1, prefix]
+            );
+            const stepId = stepRows[0].step_id;
+
+            const { rows: dbRows } = await client.query(
+                `SELECT * FROM clinicqueue.create_ticket($1, $2, $3)`,
+                [prefix, user_id, false]
+            );
+            const dbResult = dbRows[0];
+            const newTicketId = dbResult.out_ticket_id;
+
+            await client.query(
+                `UPDATE clinicqueue.ticket_events SET details = COALESCE(details, '{}'::jsonb) || $2::jsonb
+                 WHERE ticket_id = $1 AND event_type = 'CREATED'`,
+                [newTicketId, JSON.stringify({ visit_plan_id: visitPlanId, step_order: i + 1, transferred_from_ticket_id: ticket_id })]
+            );
+            await client.query(`UPDATE clinicqueue.tickets SET visit_plan_id = $1 WHERE ticket_id = $2`, [visitPlanId, newTicketId]);
+            await client.query(`UPDATE clinicqueue.visit_plan_steps SET ticket_id = $1 WHERE step_id = $2`, [newTicketId, stepId]);
+
+            await client.query(
+                `INSERT INTO clinicqueue.ticket_transfers
+                 (ticket_id, from_prefix, from_station_id, to_prefix, transferred_by, reason, details)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [ticket_id, oldTicket.prefix, station_id, prefix, user_id, reason || null,
+                    JSON.stringify({ visit_plan_id: visitPlanId, new_ticket_id: newTicketId })]
+            );
+
+            tickets.push({
+                ticket_id: newTicketId,
+                prefix: dbResult.out_prefix,
+                tck_number: dbResult.out_tck_number,
+                code: dbResult.out_code,
+                status: dbResult.out_status,
+                service_name: found.get(prefix),
+            });
+        }
+
+        await client.query(
+            `INSERT INTO clinicqueue.ticket_events (ticket_id, station_id, event_type, from_status, to_status, details, user_id)
+             VALUES ($1, $2, 'TRANSFERRED', $3, 'TRANSFERIDO', $4, $5)`,
+            [ticket_id, station_id, oldTicket.status, JSON.stringify({ visit_plan_id: visitPlanId, to_prefixes: prefixes, reason: reason || null }), user_id]
+        );
+
+        return { visit_plan_id: visitPlanId, original_ticket_id: ticket_id, tickets };
+    });
+}
+
+/**
  * Run auto-no-show batch.
  */
 async function autoNoShow(limit) {
@@ -479,4 +580,4 @@ async function requeueNoShowTicket({ ticket_id, station_id, user_id }) {
     });
 }
 
-module.exports = { createTicket, callNext, startTicket, recallTicket, finishTicket, cancelTicket, noShowTicket, transferTicket, autoNoShow, listNoShowTickets, requeueNoShowTicket, createVisitPlan };
+module.exports = { createTicket, callNext, startTicket, recallTicket, finishTicket, cancelTicket, noShowTicket, transferTicket, transferTicketMultiArea, autoNoShow, listNoShowTickets, requeueNoShowTicket, createVisitPlan };

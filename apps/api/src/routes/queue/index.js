@@ -22,6 +22,20 @@ module.exports = async function queueRoutes(fastify) {
     const auth = { preHandler: [fastify.authenticate] };
     const { query } = require('../../db/pool');
 
+    // GET /api/queue/queue-settings — active queues, staff-safe subset of
+    // /api/admin/queue-settings (no admin role required). Used by front-desk
+    // and station operators to populate service/transfer pickers; excludes
+    // config-only fields (mode, min/max_number, timeouts, etc.) they don't need.
+    fastify.get('/queue-settings', auth, async (request, reply) => {
+        const { rows } = await query(
+            `SELECT prefix, service_name, icon, allow_walkins, is_priority_for
+             FROM clinicqueue.queue_settings
+             WHERE archived = false
+             ORDER BY prefix`
+        );
+        return reply.send({ data: rows });
+    });
+
     // GET /api/queue/active-ticket/:stationId — find any LLAMADO/EN_SERVICIO ticket at this station
     fastify.get('/active-ticket/:stationId', {
         ...auth,
@@ -143,6 +157,27 @@ module.exports = async function queueRoutes(fastify) {
     }, async (request, reply) => {
         const ticket = await svc.transferTicket({ ...request.body, user_id: request.user.user_id });
         return reply.send({ data: ticket });
+    });
+
+    // POST /api/queue/transfer-multi — close out a called/in-attention ticket
+    // and split it into a multi-area visit plan (2+ new tickets).
+    fastify.post('/transfer-multi', {
+        ...auth,
+        schema: {
+            body: {
+                type: 'object',
+                required: ['ticket_id', 'station_id', 'to_prefixes'],
+                properties: {
+                    ticket_id: { type: 'integer' },
+                    station_id: { type: 'integer' },
+                    to_prefixes: { type: 'array', minItems: 2, items: { type: 'string' } },
+                    reason: { type: 'string' },
+                },
+            },
+        },
+    }, async (request, reply) => {
+        const plan = await svc.transferTicketMultiArea({ ...request.body, user_id: request.user.user_id });
+        return reply.code(201).send({ data: plan });
     });
 
     // POST /api/queue/visit-plan — pre-register a patient into an ordered
