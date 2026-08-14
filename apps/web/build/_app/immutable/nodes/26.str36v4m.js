@@ -1,0 +1,14 @@
+import{I as e,N as t,P as n,Y as r,bt as i,et as a,gt as o,ht as s,nt as c,s as l,yt as u}from"../chunks/BYdMN7ig.js";import"../chunks/xihTtKlq.js";import"../chunks/DS_t55_M.js";import{n as d}from"../chunks/B8RvjJiV.js";var f=e(`<article class="doc-page svelte-avyyk3"><h1 class="svelte-avyyk3"><span class="doc-icon svelte-avyyk3"> </span> </h1> <section class="svelte-avyyk3"><h2 id="que-es" class="svelte-avyyk3">Qué es Direct Print Agent</h2> <p class="svelte-avyyk3">Cada vez que se emite o transfiere un turno (desde <a href="/docs/recepcion" class="svelte-avyyk3">Recepción</a> o <a href="/docs/ventanilla" class="svelte-avyyk3">Ventanilla</a>), Flow Connected lo envía a imprimir
+      automáticamente en la impresora térmica de esa computadora. Esa impresión directa —sin
+      el diálogo de impresión del navegador— la hace posible <strong>Direct Print Agent</strong>,
+      un programa aliado que se instala una sola vez en cada computadora que necesite imprimir
+      turnos.</p> <p class="svelte-avyyk3">Direct Print Agent corre en segundo plano en esa misma computadora y es quien habla
+      directamente con la impresora; Flow Connected simplemente le pide "imprime este turno"
+      y él se encarga del resto.</p></section> <section class="svelte-avyyk3"><h2 id="verificar" class="svelte-avyyk3">Verificar que está funcionando</h2> <p class="svelte-avyyk3">Debe estar iniciado en la computadora antes de emitir o transferir turnos para que la
+      impresión funcione. Para confirmar que está activo, abra <strong>http://localhost:3000</strong> en un navegador de esa misma computadora — si
+      Direct Print Agent está corriendo, va a ver su propio panel de control con las
+      impresoras detectadas.</p> <p class="svelte-avyyk3">Si esa dirección no carga nada, Direct Print Agent no está iniciado en esa computadora;
+      contacte a soporte técnico para iniciarlo o instalarlo.</p></section> <section class="svelte-avyyk3"><h2 id="si-falla" class="svelte-avyyk3">Si la impresión falla</h2> <p class="svelte-avyyk3">El turno emitido o transferido siempre queda registrado en la cola, sin importar si la
+      impresión funcionó o no. Si Direct Print Agent no está corriendo o la impresora está
+      desconectada, la aplicación muestra un aviso de que no se pudo imprimir, pero el
+      paciente ya tiene su lugar asegurado — no hace falta repetir la operación.</p></section></article>`);function p(e,p){o(p,!1);let m=d(`impresion-tickets`);l();var h=f(),g=a(h),_=a(g),v=a(_,!0);i(_);var y=c(_);i(g),u(6),i(h),r(()=>{t(v,m.icon),t(y,` ${m.title??``}`)}),n(e,h),s()}export{p as component};
