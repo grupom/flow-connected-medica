@@ -1,0 +1,9 @@
+import{I as e,N as t,P as n,Y as r,bt as i,et as a,gt as o,ht as s,nt as c,s as l,yt as u}from"../chunks/BYdMN7ig.js";import"../chunks/xihTtKlq.js";import"../chunks/DS_t55_M.js";import{n as d}from"../chunks/jftPeae2.js";var f=e(`<article class="doc-page svelte-19fbkig"><h1 class="svelte-19fbkig"><span class="doc-icon svelte-19fbkig"> </span> </h1> <section class="svelte-19fbkig"><h2 id="datos-personales" class="svelte-19fbkig">Datos personales</h2> <p class="svelte-19fbkig">Desde <strong>Mi Perfil</strong> (menú lateral) puede actualizar su nombre para mostrar,
+      correo electrónico y teléfono. Su <strong>usuario</strong> (con el que inicia sesión) no
+      se puede cambiar desde aquí — si necesita corregirlo, pídaselo a un administrador.</p> <p class="svelte-19fbkig">Arriba también se muestran, de solo lectura, el o los roles que tiene asignados, la
+      fecha de su último acceso y desde cuándo está registrada su cuenta.</p> <p class="svelte-19fbkig">Después de editar cualquier campo, presione <strong>Guardar Cambios</strong> para que se
+      apliquen.</p></section> <section class="svelte-19fbkig"><h2 id="cambiar-password" class="svelte-19fbkig">Cambiar contraseña</h2> <p class="svelte-19fbkig">En la sección <strong>Seguridad</strong>, presione <strong>🔒 Cambiar Contraseña</strong> para abrir el formulario. Debe ingresar su contraseña actual, la nueva (mínimo 6
+      caracteres) y repetirla para confirmar — si no coinciden, se lo indica antes de dejarle
+      guardar.</p> <p class="svelte-19fbkig">Cambie su contraseña si sospecha que alguien más la conoce, o periódicamente como buena
+      práctica de seguridad. Esto no cierra la sesión de otros dispositivos donde ya haya
+      iniciado sesión.</p></section></article>`);function p(e,p){o(p,!1);let m=d(`mi-perfil`);l();var h=f(),g=a(h),_=a(g),v=a(_,!0);i(_);var y=c(_);i(g),u(4),i(h),r(()=>{t(v,m.icon),t(y,` ${m.title??``}`)}),n(e,h),s()}export{p as component};
