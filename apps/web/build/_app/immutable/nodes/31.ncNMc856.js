@@ -1,0 +1,14 @@
+import{I as e,N as t,P as n,Y as r,bt as i,et as a,gt as o,ht as s,nt as c,s as l,yt as u}from"../chunks/BYdMN7ig.js";import"../chunks/xihTtKlq.js";import"../chunks/DS_t55_M.js";import{n as d}from"../chunks/jftPeae2.js";var f=e(`<article class="doc-page svelte-1irh0vn"><h1 class="svelte-1irh0vn"><span class="doc-icon svelte-1irh0vn"> </span> </h1> <section class="svelte-1irh0vn"><h2 id="crear-turno" class="svelte-1irh0vn">Crear un turno</h2> <ul class="doc-list svelte-1irh0vn"><li class="svelte-1irh0vn">Cada área de servicio (Consulta, Laboratorio, Imágenes, etc.) aparece como una tarjeta
+        con su nombre, el prefijo de su cola, y cuántos turnos están en espera en ese momento
+        ("Libre" si no hay ninguno). Haga clic en la tarjeta para emitir un turno.</li> <li class="svelte-1irh0vn">El turno se genera, se muestra en pantalla, y se envía a imprimir automáticamente.</li> <li class="svelte-1irh0vn">Si la impresión falla, el turno queda igual de válido — aparece un aviso indicando que
+        no se pudo imprimir, pero el paciente ya tiene su lugar en la cola. La impresión
+        depende de <a href="/docs/impresion-tickets" class="svelte-1irh0vn">Direct Print Agent</a>, un programa que
+        debe estar corriendo en esta computadora.</li> <li class="svelte-1irh0vn">Las áreas marcadas <strong>⚡ PRIORIDAD</strong> (embarazadas, adultos mayores) solo se
+        emiten desde aquí, nunca desde el kiosko de autoservicio.</li></ul></section> <section class="svelte-1irh0vn"><h2 id="planes-visita" class="svelte-1irh0vn">Planes de visita multi-cola</h2> <ul class="doc-list svelte-1irh0vn"><li class="svelte-1irh0vn">Cuando un paciente factura por adelantado varios servicios en la misma visita (ej.
+        Consulta + Laboratorio + Imágenes), use <strong>📋 Registrar visita con varias
+        áreas</strong> en vez de emitir cada turno por separado.</li> <li class="svelte-1irh0vn">Seleccione todas las áreas que el paciente va a visitar y confirme. Los turnos de <strong>todas</strong> las áreas se emiten e imprimen al mismo tiempo — no hace falta
+        indicar un orden, porque el paciente puede visitarlas en el orden que quiera, y no hay
+        forma de saber de antemano cuánto tardará entre una y otra.</li> <li class="svelte-1irh0vn">Si el turno de una de esas áreas es llamado y el paciente todavía no llega (porque
+        sigue en otra), el personal de esa estación puede marcarlo como No-Show con confianza
+        — al pertenecer a una visita de varias áreas, ese turno se puede reinsertar en la cola
+        sin el límite normal de turnos ya llamados. Vea <a href="/docs/ventanilla" class="svelte-1irh0vn">Ventanilla</a> para el detalle de esa reinserción.</li></ul></section></article>`);function p(e,p){o(p,!1);let m=d(`recepcion`);l();var h=f(),g=a(h),_=a(g),v=a(_,!0);i(_);var y=c(_);i(g),u(4),i(h),r(()=>{t(v,m.icon),t(y,` ${m.title??``}`)}),n(e,h),s()}export{p as component};
