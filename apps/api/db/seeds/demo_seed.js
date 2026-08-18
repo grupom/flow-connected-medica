@@ -89,9 +89,9 @@ async function seed() {
         const { rows: staRows } = await client.query(`
       INSERT INTO clinicqueue.stations (station_code, station_name, prefix, module_id, is_active)
       VALUES
-        ('S01', 'Station 01', 'C', $1, true),
-        ('S02', 'Station 02', 'C', $1, true),
-        ('S03', 'Station 03', 'C', $1, true)
+        ('S01', 'Consultorio 1', 'C', $1, true),
+        ('S02', 'Consultorio 2', 'C', $1, true),
+        ('S03', 'Consultorio 3', 'C', $1, true)
       ON CONFLICT (station_code) DO NOTHING
       RETURNING station_id, station_code
     `, [moduleId]);

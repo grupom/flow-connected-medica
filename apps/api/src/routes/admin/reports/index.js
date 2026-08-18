@@ -90,13 +90,13 @@ module.exports = async function reportsRoutes(fastify) {
         // Map statuses to readable ones
         const mapStatus = (db) => {
             switch(db) {
-                case 'EN_COLA': return 'Waiting';
-                case 'LLAMADO': return 'Called';
-                case 'EN_ATENCION': return 'Serving';
-                case 'FINALIZADO': return 'Done';
+                case 'EN_COLA': return 'En Espera';
+                case 'LLAMADO': return 'Llamado';
+                case 'EN_ATENCION': return 'Atendiendo';
+                case 'FINALIZADO': return 'Finalizado';
                 case 'NO_SHOW': return 'No-Show';
-                case 'CANCELADO': return 'Cancelled';
-                case 'TRANSFERIDO': return 'Transferred';
+                case 'CANCELADO': return 'Cancelado';
+                case 'TRANSFERIDO': return 'Transferido';
                 default: return db;
             }
         };
