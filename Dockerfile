@@ -4,13 +4,15 @@
 # El UI (apps/web/build) llega ya compilado en este repo — no se distribuye ni
 # se compila el codigo fuente del frontend aqui. Se actualiza vía
 # scripts/release-medica.ps1 en flow-connected.
+#
+# Base Debian (glibc), no Alpine: el binario Piper TTS vendorizado (ver mas
+# abajo) es un release oficial de glibc — necesita /lib64/ld-linux-x86-64.so.2,
+# que no existe en musl/Alpine. Correr esto sobre Alpine haria que Piper nunca
+# arrancara (independientemente de si la descarga de red hubiese funcionado).
 # ──────────────────────────────────────────────────────────────────────────────
-FROM node:20-alpine AS production
+FROM node:20-slim AS production
 
 WORKDIR /app
-
-# Install wget + tar for Piper TTS download
-RUN apk add --no-cache wget tar
 
 # Copy package manifests (api workspace only — apps/web has no package.json)
 COPY package.json package-lock.json ./
@@ -26,31 +28,32 @@ COPY apps/api/db  ./apps/api/db
 # Copy precompiled web UI (committed to this repo, see apps/web/build/)
 COPY apps/web/build ./apps/web/build
 
-# ── Download Piper TTS (Linux x86_64) ────────────────────────────────────────
-# Falls back gracefully to browser SpeechSynthesis if the download fails.
-RUN mkdir -p apps/api/tts/bin apps/api/tts/models && \
-    wget -q \
-      "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz" \
-      -O /tmp/piper.tar.gz && \
-    tar -xzf /tmp/piper.tar.gz -C /tmp && \
-    cp -r /tmp/piper/. apps/api/tts/bin/ && \
-    chmod +x apps/api/tts/bin/piper && \
-    rm -rf /tmp/piper /tmp/piper.tar.gz && \
-    wget -q \
-      "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx" \
-      -O apps/api/tts/models/es_ES-davefx-medium.onnx && \
-    wget -q \
-      "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx.json" \
-      -O apps/api/tts/models/es_ES-davefx-medium.onnx.json || \
-    echo "WARNING: Piper TTS download failed. Browser SpeechSynthesis will be used as fallback."
+# ── Paquete de voz Piper TTS (vendorizado en este repo) ──────────────────────
+# El binario Linux x86_64 de Piper + el modelo de voz en español
+# (es_ES-davefx-medium) viven directamente en apps/api/tts/{bin,models} de
+# este repo — no se descargan en cada build. Esto evita que el build del
+# cliente dependa de acceso a GitHub/HuggingFace (causa raíz de un bug donde,
+# sin Piper, el board caía al speechSynthesis del navegador y leía los
+# anuncios con voz en inglés). El release original no preserva symlinks al
+# extraerse en Windows, así que se recrean aquí, nativamente en Linux.
+COPY apps/api/tts/bin    ./apps/api/tts/bin
+COPY apps/api/tts/models ./apps/api/tts/models
+RUN cd apps/api/tts/bin && \
+    ln -sf libpiper_phonemize.so.1.2.0 libpiper_phonemize.so.1 && \
+    ln -sf libpiper_phonemize.so.1     libpiper_phonemize.so && \
+    ln -sf libespeak-ng.so.1.52.0.1    libespeak-ng.so.1 && \
+    ln -sf libespeak-ng.so.1           libespeak-ng.so && \
+    ln -sf libonnxruntime.so.1.14.1    libonnxruntime.so && \
+    chmod +x piper piper_phonemize espeak-ng
 
 # Create runtime directories
 RUN mkdir -p apps/api/cache/tts apps/api/tts/tmp apps/api/media/boards
 
 # ── Run as a non-root user ───────────────────────────────────────────────────
-# node:20-alpine already ships a `node` user at a fixed uid/gid 1000 — reuse it
-# instead of creating a new one (deterministic across rebuilds, needed to
-# `chown` the tts_cache/board_media named volumes to match on deploy).
+# The official node images (slim included) already ship a `node` user at a
+# fixed uid/gid 1000 — reuse it instead of creating a new one (deterministic
+# across rebuilds, needed to `chown` the tts_cache/board_media named volumes
+# to match on deploy).
 RUN chown -R node:node /app
 
 USER node

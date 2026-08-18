@@ -66,6 +66,16 @@ async function buildApp() {
     // ── TTS (Piper offline) /api/tts ──────────────────────────────────────────
     await fastify.register(require('./routes/tts/index'), { prefix: '/api/tts' });
 
+    const PIPER_BIN = path.join(__dirname, '..', 'tts', 'bin', process.platform === 'win32' ? 'piper.exe' : 'piper');
+    if (fs.existsSync(PIPER_BIN)) {
+        fastify.log.info(`TTS (Piper) → ${PIPER_BIN}`);
+    } else {
+        fastify.log.warn(
+            `Piper TTS no encontrado en "${PIPER_BIN}". Los anuncios de audio caerán al ` +
+            `speechSynthesis del navegador. Ejecuta: node apps/api/scripts/setup-piper.js`
+        );
+    }
+
     // ── Board ad media (público, sin auth — la TV no inicia sesión) ────────────
     // Registrado con @fastify/static para soportar Range requests (seek de <video>).
     const MEDIA_ROOT = path.join(__dirname, '..', 'media', 'boards');

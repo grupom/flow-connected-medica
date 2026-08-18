@@ -1,0 +1,6 @@
+# Piper TTS voice pack (vendorizado): binarios/datos exactos, sin normalizar
+# saltos de linea. core.autocrlf convertiria bytes dentro de los .so, .onnx,
+# y los archivos internos de espeak-ng-data (diccionarios/voces), corrompiendo
+# el paquete de voz en cualquier checkout en Windows.
+apps/api/tts/bin/**    -text
+apps/api/tts/models/** -text

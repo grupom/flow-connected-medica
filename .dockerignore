@@ -9,9 +9,8 @@ apps/web/.svelte-kit
 # apps/web/build/ NO se excluye: es el UI precompilado que necesita el Dockerfile (COPY apps/web/build ./apps/web/build)
 
 apps/api/cache
-apps/api/tts/bin
-apps/api/tts/models
 apps/api/tts/tmp
+# apps/api/tts/bin y models NO se excluyen: paquete de voz Piper vendorizado (ver Dockerfile)
 
 .env
 apps/api/.env

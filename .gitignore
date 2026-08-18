@@ -9,8 +9,7 @@ Thumbs.db
 # apps/web/build/ NO se ignora: aqui vive el UI precompilado que se distribuye
 # a este repo (no hay codigo fuente del UI en flow-connected-medica).
 
-# Piper TTS — binary, models and generated audio cache (run setup-piper.js once)
-apps/api/tts/bin/
-apps/api/tts/models/
+# Piper TTS: bin/ y models/ SI se versionan (paquete de voz vendorizado, ver
+# Dockerfile) — solo se ignoran tmp/ y cache/, que son generados en runtime.
 apps/api/tts/tmp/
 apps/api/cache/
