@@ -209,13 +209,29 @@ docker compose exec -T postgres psql -U postgres clinicqueue_db < respaldo_20260
 
 ## Solución de problemas frecuentes
 
+> ⚠️ **`docker compose down -v` borra TODOS los datos** (turnos, estaciones, usuarios,
+> configuración — todo). Ninguna de las soluciones de esta sección lo requiere si ya
+> tiene datos reales cargados; úselo solo en una instalación nueva, antes de tener
+> pacientes/turnos reales en el sistema. Para actualizar el sistema sin perder datos, vea
+> [Actualización del sistema](#actualización-del-sistema) — nunca hace falta borrar el
+> volumen para eso.
+
 ### Los contenedores no arrancan / Error de contraseña en `DATABASE_URL`
 
 **Causa**: La contraseña contiene el carácter `#`.
-**Solución**: Cambie la contraseña en `.env` (tanto en `POSTGRES_PASSWORD` como en `DATABASE_URL`) por una que no contenga `#`, luego ejecute:
+**Solución (instalación nueva, sin datos que conservar)**: Cambie la contraseña en `.env`
+(tanto en `POSTGRES_PASSWORD` como en `DATABASE_URL`) por una que no contenga `#`, luego
+ejecute:
 ```bash
 docker compose down -v
 docker compose up -d
+```
+**Solución (ya hay datos reales cargados)**: No borre el volumen. En su lugar, cambie
+`DATABASE_URL` en `.env` para que no contenga `#`, y actualice la contraseña del usuario
+directamente en Postgres para que coincida:
+```bash
+docker compose exec postgres psql -U postgres -c "ALTER USER postgres WITH PASSWORD 'nueva_password_sin_numeral';"
+docker compose restart api
 ```
 
 ### pgAdmin no inicia / "does not appear to be a valid email"
@@ -230,8 +246,11 @@ docker compose up -d
 
 ### Error al cargar datos de demo: "column does not exist"
 
-**Causa**: La base de datos no se reinicializó después de un cambio de schema.
-**Solución**:
+**Causa**: La base de datos no se reinicializó después de un cambio de schema. Esto solo
+aplica a un ambiente de **demo/pruebas sin datos reales** — `demo_seed.js` nunca se ejecuta
+solo, hay que correrlo a propósito (`make seed`), así que este error no debería aparecer en
+producción salvo que alguien haya corrido el seed manualmente ahí.
+**Solución (demo/pruebas, sin datos que conservar)**:
 ```bash
 docker compose down -v
 docker compose up -d
